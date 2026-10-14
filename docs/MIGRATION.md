@@ -1,0 +1,82 @@
+# RE:CARE Flutter 마이그레이션
+
+대상: `RECARE Flutter 프로젝트 폴더`
+
+## 구현 범위
+
+서버 없이 기존 Kotlin MVP 기능 1~4를 이전했다.
+
+- 이름·수량·단위·소비기한·선택 구매금액 입력 및 SQLite 로컬 저장.
+- 소비기한순 행 목록, D-Day, 상세·수정·삭제, 재고 0인 재료 확인.
+- 먹음·폐기 수량·날짜·금액 기록과 재고 감소.
+- 월요일부터 오늘까지 실제 폐기 기록의 내역·금액 합계.
+- 금액 미입력과 0원 구분, 단위 변환, 재고 초과·미래 처리 날짜 차단.
+- 처리 기록이 생긴 재료는 이름·소비기한만 수정. 추가 구매분은 새 재료로 등록.
+- 삭제는 처리 기록이 없는 재료에만 적용한다. 기록이 있으면 삭제를 막아 주간 집계와 처리 내역을 보존한다.
+- 슬레이트 블루와 세이지 그린을 사용하며 글자·색상·간격·모서리를 공통 테마로 관리한다.
+
+사진 첨부·알림·AI 레시피는 후속 단계다.
+
+## 기존 데이터 호환
+
+앱 ID `com.detabev.recare`, 데이터베이스 `recare.db`, 버전 1, 테이블·컬럼·단위/처리 코드를 그대로 유지했다. `onCreate`만 새 DB를 생성하며 기존 DB는 초기화하지 않는다. 현재 앱 버전은 `1.0.2+3`다.
+
+부분 처리 금액은 BigInt 정수 연산으로 누적 비례 반올림한다. 우유 1L·3,000원 중 250ml 폐기 시 남은 재고 0.75L(750ml), 폐기 금액 750원이다. 먹음 금액은 주간 폐기 합계에서 제외한다. 금액 미입력은 SQL NULL로 보존한다.
+
+기존 앱을 업데이트할 때는 같은 서명으로 설치해야 한다. 기존 앱을 삭제하면 DB도 삭제되므로 삭제 후 재설치하지 않는다. 실제 Android 앱 업데이트 시 데이터 유지 검증은 기기 연결 후 수행한다.
+
+## 파일 구성
+
+| 파일 | 역할 |
+| --- | --- |
+| `lib/main.dart` | 한국어 UI, 등록·행 목록·상세·수정·삭제·처리·주간 화면 |
+| `lib/ui/design_system.dart` | 공통 색상·글자·간격·모서리 및 밝은/어두운 테마 |
+| `lib/domain/inventory.dart` | 모델·입력 검증·단위·금액·주간 계산 |
+| `lib/data/inventory_repository.dart` | SQLite 트랜잭션, 영구 저장, 중복 처리 방지 |
+| `test/inventory_test.dart` | 핵심 계산 검증 |
+| `test/repository_test.dart` | 저장 유지·롤백·중복 요청·Kotlin DB 호환 검증 |
+| `test/widget_test.dart` | 등록·소비·폐기·수정·삭제·주간 합계·D-Day·좁은 화면 검증 |
+| `test/fixtures/kotlin_v1.db` | 기존 Kotlin 스키마로 생성한 합성 테스트 DB |
+
+## 환경
+
+Flutter 3.47.6 / Dart 3.13.5. Flutter 생성 Android 빌드 설정을 사용하고 minSdk는 기존과 같은 29다. 앱 main Manifest에는 INTERNET 권한을 추가하지 않았고 Android 백업은 껐다. debug/profile Manifest의 INTERNET 권한은 Flutter 개발 도구 통신용이다.
+
+## 실행 및 검증
+
+Android Studio에서 이 폴더를 다시 열고 `lib/main.dart`를 실행한다.
+
+```powershell
+flutter pub get
+flutter analyze
+flutter test
+flutter build apk --debug
+flutter run
+```
+
+APK: `build/app/outputs/flutter-apk/app-debug.apk`
+
+테스트는 별도 임시 DB를 사용한다. `test/fixtures/kotlin_v1.db`에는 실제 사용자 데이터가 없으며 테스트용 우유·당근·달걀 및 폐기 기록만 들어 있다.
+
+## 백업
+
+원래 이 폴더에 있던 Java 기본 프로젝트는 `migration_backup/java_project`에 보존했다. 기존 Kotlin 앱은 `기존 Kotlin 프로젝트 폴더`에 유지되어 있다. 기존 소스·APK의 별도 백업은 해당 프로젝트의 `flutter_migration/baseline`에 있다.
+
+## 최종 검증 결과
+
+- Flutter 정적 검사: 문제 없음.
+- 기능 테스트 49건 통과: 계산 10건, 저장/삭제/호환성 11건, 비율 10건, 설정 8건, 화면 흐름 10건.
+- 320px 너비·글자 크기 1.3배에서 화면 이동·수정·처리 동작 검증 통과.
+- 휴대폰 크기(360×780)의 한국어 테스트 렌더링 5화면 검증 통과. 목록·상세·등록·폐기 입력·주간 화면 미리보기는 `docs/screenshots`에 보관.
+- Android debug APK 빌드 성공, 앱 ID `com.detabev.recare`, 버전 `1.0.2+3`, minSdk 29 / targetSdk 36 확인.
+- 기존 Kotlin APK와 Flutter APK의 debug 서명 인증서가 동일함을 확인.
+- NDK 28.2.13676358 설치 완료. Android CLI에서 SDK 패키지명 `ndk/28.2.13676358`을 사용해 설치했다.
+- 연결된 Samsung SM-S921N에 1.0.2+3 APK 업데이트 설치와 앱 실행을 확인했다. CRUD·수량 처리·설정 복원·기존 스키마 호환성은 호스트 테스트로 검증했다. 실기기에서 전체 입력·처리 흐름을 반복 검증한 것은 아니다.
+
+## 2026-10-14 화면 개선
+
+홈·목록·설정 3개 탭으로 구성한다. 홈은 실제 기록에서 이번 주 폐기금액을 계산하고 소비기한 3일 이내·지난 재료를 보여준다. 목록의 식재료를 누르면 상세·수정·삭제와 먹음·폐기로 이동한다.
+
+처리 수량은 전부·절반·1/3·1/4 또는 직접 입력으로 지정한다. 비율은 현재 남은 재고 기준이며 최소 내부 단위로 반올림한다. L·kg의 작은 비율은 ml·g로 표시해 직접 입력으로 전환해도 정확한 수량이 유지된다. 처리 수량·금액·처리 후 재고를 저장 전에 보여준다.
+
+화면 모드와 처리 완료 표시 설정은 별도 recare_preferences.json 파일에 저장한다. 식재료 DB 버전·모델·금액 계산은 그대로 유지했다. 설정 저장 오류는 안내와 재시도로 처리한다.
