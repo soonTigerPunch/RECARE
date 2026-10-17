@@ -8,6 +8,9 @@ import 'data/inventory_repository.dart';
 import 'data/preferences.dart';
 import 'domain/inventory.dart';
 import 'domain/portions.dart';
+import 'domain/food_catalog.dart';
+import 'ui/food_illustration.dart';
+import 'ui/ingredient_autocomplete.dart';
 import 'ui/design_system.dart';
 
 void main() {
@@ -336,6 +339,7 @@ class _InventoryHomeState extends State<InventoryHome>
                         ? HomeOverview(
                             week: weeklyWaste(_snapshot.records, _today),
                             urgent: urgent,
+                            hasStock: active.isNotEmpty,
                             today: _today,
                             onOpen: _open,
                             onWeek: _showWeek,
@@ -354,22 +358,37 @@ class _InventoryHomeState extends State<InventoryHome>
                                     top: Space.sm,
                                     bottom: Space.lg,
                                   ),
-                                  child: Row(
+                                  child: Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
                                     children: [
-                                      Expanded(
-                                        child: Text(
-                                          '${visible.length}개 식재료',
+                                      Row(
+                                        children: [
+                                          Expanded(
+                                            child: Text(
+                                              '${visible.length}개 식재료',
+                                              style: Theme.of(context)
+                                                  .textTheme
+                                                  .bodyMedium,
+                                            ),
+                                          ),
+                                          Text(
+                                            '소비기한순',
+                                            style: Theme.of(context)
+                                                .textTheme
+                                                .bodySmall,
+                                          ),
+                                        ],
+                                      ),
+                                      if (visible.isNotEmpty) ...[
+                                        const SizedBox(height: Space.sm),
+                                        Text(
+                                          '식재료를 선택하면 상세 정보를 확인할 수 있어요.',
                                           style: Theme.of(context)
                                               .textTheme
-                                              .bodyMedium,
+                                              .bodySmall,
                                         ),
-                                      ),
-                                      Text(
-                                        '소비기한순',
-                                        style: Theme.of(context)
-                                            .textTheme
-                                            .bodySmall,
-                                      ),
+                                      ],
                                     ],
                                   ),
                                 );
@@ -379,13 +398,28 @@ class _InventoryHomeState extends State<InventoryHome>
                                   padding: const EdgeInsets.symmetric(
                                     vertical: Space.xxl,
                                   ),
-                                  child: Text(
-                                    widget.preferences.includeFinished
-                                        ? '등록된 식재료가 없어요.'
-                                        : '보관 중인 식재료가 없어요.',
-                                    style: Theme.of(context)
-                                        .textTheme
-                                        .bodyLarge,
+                                  child: Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      Text(
+                                        _snapshot.foods.isEmpty
+                                            ? '아직 등록된 식재료가 없어요.'
+                                            : '보관 중인 식재료가 없어요.',
+                                        style: Theme.of(context)
+                                            .textTheme
+                                            .bodyLarge,
+                                      ),
+                                      const SizedBox(height: Space.sm),
+                                      Text(
+                                        _snapshot.foods.isEmpty
+                                            ? '냉장고 속 식재료를 등록해보세요.'
+                                            : '설정에서 처리 완료 표시를 켜면 이전 식재료를 볼 수 있어요.',
+                                        style: Theme.of(context)
+                                            .textTheme
+                                            .bodySmall,
+                                      ),
+                                    ],
                                   ),
                                 );
                               }
@@ -432,6 +466,7 @@ class HomeOverview extends StatelessWidget {
     super.key,
     required this.week,
     required this.urgent,
+    required this.hasStock,
     required this.today,
     required this.onOpen,
     required this.onWeek,
@@ -439,6 +474,7 @@ class HomeOverview extends StatelessWidget {
   });
   final WeekSummary week;
   final List<Food> urgent;
+  final bool hasStock;
   final DateTime today;
   final ValueChanged<Food> onOpen;
   final VoidCallback onWeek, onList;
@@ -483,13 +519,19 @@ class HomeOverview extends StatelessWidget {
           TextButton(onPressed: onList, child: const Text('전체 목록')),
         ],
       ),
-      Text('소비기한 3일 이내 · 지난 재료', style: Theme.of(context).textTheme.bodySmall),
+      if (urgent.isNotEmpty)
+        Text(
+          '소비기한이 지났거나 3일 이내인 재료를 확인해보세요.',
+          style: Theme.of(context).textTheme.bodySmall,
+        ),
       const SizedBox(height: Space.sm),
       if (urgent.isEmpty)
         Padding(
           padding: const EdgeInsets.symmetric(vertical: Space.xl),
           child: Text(
-            '소비기한이 임박한 재료가 없어요.',
+            hasStock
+                ? '소비기한이 임박한 재료가 없어요.'
+                : '보관 중인 식재료가 없어요. 냉장고 속 식재료를 등록해보세요.',
             style: Theme.of(context).textTheme.bodyMedium,
           ),
         ),
@@ -718,7 +760,7 @@ class _FoodDetailState extends State<FoodDetail> {
       context: context,
       builder: (dialogContext) => AlertDialog(
         title: const Text('식재료 삭제'),
-        content: Text('${_food.name} 등록 정보를 삭제할까요?'),
+        content: Text('${_food.name}\n냉장고 목록에서 삭제할까요?'),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(dialogContext).pop(false),
@@ -777,9 +819,21 @@ class _FoodDetailState extends State<FoodDetail> {
                 padding: const EdgeInsets.all(Space.xl),
                 children: [
                   if (_loading || _deleting) const LinearProgressIndicator(),
-                  Text(
-                    _food.name,
-                    style: Theme.of(context).textTheme.headlineLarge,
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Expanded(
+                        child: Text(
+                          _food.name,
+                          style: Theme.of(context).textTheme.headlineLarge,
+                        ),
+                      ),
+                      const SizedBox(width: Space.md),
+                      FoodIllustration(
+                        visual: foodVisualForName(_food.name),
+                        size: 56,
+                      ),
+                    ],
                   ),
                   const SizedBox(height: Space.sm),
                   ExpiryLine(food: _food, today: widget.clock()),
@@ -875,7 +929,8 @@ class _FoodEditorState extends State<FoodEditor> {
   late FoodUnit _unit;
   late String _id;
   DateTime? _expiry;
-  bool _busy = false;
+  bool _busy = false, _searching = false;
+  FoodSuggestion? _selection;
   String? _error;
   @override
   void initState() {
@@ -897,6 +952,20 @@ class _FoodEditorState extends State<FoodEditor> {
     _amount.dispose();
     _price.dispose();
     super.dispose();
+  }
+
+  void _chooseIngredient(FoodSuggestion suggestion) {
+    setState(() {
+      _selection = suggestion;
+      _name.text = suggestion.name;
+      _unit = suggestion.inputUnit;
+      _amount.text = _unit.quantityText(suggestion.amount);
+      // Every registration is a new purchase. Neither catalogue nor history
+      // provides a reliable expiry date or actual paid price for this purchase.
+      _expiry = null;
+      _price.clear();
+      _error = null;
+    });
   }
 
   Future<void> _save() async {
@@ -947,19 +1016,57 @@ class _FoodEditorState extends State<FoodEditor> {
             padding: const EdgeInsets.all(Space.xl),
             children: [
               if (_busy) const LinearProgressIndicator(),
-              TextFormField(
-                key: const ValueKey('food-name'),
-                controller: _name,
-                enabled: !_busy,
-                decoration: const InputDecoration(
-                  labelText: '식재료 이름',
-                  hintText: '예: 우유',
+              if (widget.food == null &&
+                  _error == null &&
+                  !_searching &&
+                  _selection == null) ...[
+                Text(
+                  '냉장고에 보관 중인 식재료를 등록해보세요.',
+                  style: Theme.of(context).textTheme.bodyMedium,
                 ),
-                validator: (v) =>
-                    v == null || v.trim().isEmpty || v.trim().length > 60
-                    ? '식재료 이름은 1~60자로 입력해주세요.'
-                    : null,
-              ),
+                const SizedBox(height: Space.xl),
+              ],
+              if (widget.food == null)
+                IngredientAutocomplete(
+                  key: const ValueKey('ingredient-autocomplete'),
+                  controller: _name,
+                  enabled: !_busy,
+                  loadHistory: widget.repository.recentFoods,
+                  onSelected: _chooseIngredient,
+                  onNameChanged: () => setState(() => _selection = null),
+                  onActiveChanged: (active) =>
+                      setState(() => _searching = active),
+                )
+              else
+                TextFormField(
+                  key: const ValueKey('food-name'),
+                  controller: _name,
+                  enabled: !_busy,
+                  decoration: const InputDecoration(labelText: '식재료 이름'),
+                  validator: (v) =>
+                      v == null || v.trim().isEmpty || v.trim().length > 60
+                      ? '식재료 이름은 1~60자로 입력해주세요.'
+                      : null,
+                ),
+              if (_selection != null && !_searching && _error == null)
+                Padding(
+                  padding: const EdgeInsets.only(top: Space.md),
+                  child: Row(
+                    children: [
+                      FoodIllustration(
+                        key: const ValueKey('selected-food-image'),
+                        visual: _selection!.visual,
+                      ),
+                      const SizedBox(width: Space.md),
+                      Expanded(
+                        child: Text(
+                          '대표 이미지 · 소비기한과 구매금액을 확인해주세요.',
+                          style: Theme.of(context).textTheme.bodySmall,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
               const SizedBox(height: Space.xl),
               TextFormField(
                 key: const ValueKey('food-quantity'),

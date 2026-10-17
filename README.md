@@ -2,6 +2,8 @@
 
 서버 없이 기기 내 SQLite로 식재료 재고와 폐기 금액을 기록하는 Flutter MVP입니다.
 
+새 식재료 등록에서 이름을 입력하면 대표 이미지와 함께 기본 목록·이전 등록 이력을 제안합니다. 선택하면 이름과 수량·단위를 채우며 소비기한과 실제 구매금액은 새로 입력합니다. 검색은 기기 안에서 처리합니다. 자세한 범위는 [자동완성 안내](docs/AUTOCOMPLETE.md)를 참고하세요.
+
 홈에서 이번 주 폐기금액과 임박 재료를 확인하고, 목록에서 식재료 상세·수정·삭제로 이동합니다. 먹음·폐기 처리는 전부·절반·1/3·1/4 또는 직접 입력으로 수량을 지정합니다. 구매금액 미입력과 0원을 구분하며 부분 처리 금액을 정확히 계산합니다.
 
 ```powershell
@@ -20,6 +22,8 @@ Android 최소 버전은 Android 10(API 29)입니다. APK는 `build/app/outputs/
 
 ## 팀원 다운로드
 
+현재 소스 버전은 **1.0.3+4**입니다. 아래 공개 Release는 **1.0.2-mvp**로, 최신 안내 문구와 자동완성은 아직 포함하지 않습니다.
+
 - [테스트 APK 다운로드](https://github.com/soonTigerPunch/RECARE/releases/tag/v1.0.2-mvp)
 - [소스 ZIP 다운로드](https://github.com/soonTigerPunch/RECARE/archive/refs/heads/main.zip)
 
@@ -29,8 +33,16 @@ APK는 Android 10 이상에서 설치할 수 있는 테스트 빌드입니다. �
 
 ## 검증
 
-- 계산·저장·수정·삭제·수량 선택·설정·화면 흐름 테스트 49건 통과
-- `flutter analyze` 문제 없음
-- Android debug APK 빌드 및 연결 기기 업데이트 설치 확인
+- 2026-10-17: 자동완성·계산·저장·수정·삭제·수량 선택·설정·화면 흐름 테스트 67건 통과
+- `flutter analyze --no-pub` 문제 없음
+- 별도 화면 렌더링 테스트 통과, 자동완성 3개를 포함한 13개 캡처 확인
+- 1.0.3+4 Android debug APK 빌드 성공
+- 이번 버전의 실기기 설치·조작 검사는 미실시. 이전 1.0.2 버전의 연결 기기 업데이트 설치·시작 확인과 구분
+
+[자동완성 제안](docs/screenshots/autocomplete-suggestions.png) · [선택 후 등록](docs/screenshots/autocomplete-selected.png) · [이전 등록 이력](docs/screenshots/autocomplete-history.png)
 
 [홈 화면](docs/screenshots/home.png) · [식재료 목록](docs/screenshots/fridge.png) · [수량 선택](docs/screenshots/processing-dialog.png)
+
+## 개발 변경 기록
+
+Flutter 전환, 기능·디자인·문구 변경, 검증·배포 및 후속 합의는 [개발 변경 기록](docs/DEVELOPMENT_HISTORY.md)에 정리했습니다.

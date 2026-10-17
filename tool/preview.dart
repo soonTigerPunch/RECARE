@@ -190,6 +190,17 @@ void main() {
     await tester.tap(find.text('식재료 등록'));
     await waitForPage('food-editor');
     await capture('registration.png');
+    await tester.enterText(find.byKey(const ValueKey('food-name')), '서울우');
+    await tester.pumpAndSettle();
+    await capture('autocomplete-suggestions.png');
+    await tester.tap(find.byKey(const ValueKey('suggestion-seoul-lowfat-1l')));
+    await tester.pumpAndSettle();
+    await capture('autocomplete-selected.png');
+    await tester.enterText(find.byKey(const ValueKey('food-name')), '우유');
+    await tester.pumpAndSettle();
+    await capture('autocomplete-history.png');
+    FocusManager.instance.primaryFocus?.unfocus();
+    await tester.pumpAndSettle();
     await tester.tap(find.byType(BackButton));
     await waitForPage('inventory-page');
 

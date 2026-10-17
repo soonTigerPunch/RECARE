@@ -55,6 +55,16 @@ class InventoryRepository {
     return InventoryRepository._(db);
   }
 
+  Future<List<Food>> recentFoods({int limit = 200}) async {
+    require(limit > 0 && limit <= 200, '이전 등록 조회 범위를 확인해주세요.');
+    final rows = await _db.query(
+      'foods',
+      orderBy: 'created DESC, rowid DESC',
+      limit: limit,
+    );
+    return List.unmodifiable(rows.map(Food.fromRow));
+  }
+
   Future<InventorySnapshot> load() => _db.transaction((txn) async {
     final foods = await txn.query('foods', orderBy: 'expiry, name');
     final records = await txn.query(
