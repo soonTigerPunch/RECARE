@@ -22,9 +22,9 @@ Android 최소 버전은 Android 10(API 29)입니다. APK는 `build/app/outputs/
 
 ## 팀원 다운로드
 
-현재 소스 버전은 **1.0.3+4**입니다. 아래 공개 Release는 **1.0.2-mvp**로, 최신 안내 문구와 자동완성은 아직 포함하지 않습니다.
+현재 소스와 공개 테스트 APK는 **1.0.3+4**입니다. 식재료 자동완성과 최신 안내 문구가 포함되어 있습니다.
 
-- [테스트 APK 다운로드](https://github.com/soonTigerPunch/RECARE/releases/tag/v1.0.2-mvp)
+- [테스트 APK 다운로드](https://github.com/soonTigerPunch/RECARE/releases/tag/v1.0.3-mvp)
 - [소스 ZIP 다운로드](https://github.com/soonTigerPunch/RECARE/archive/refs/heads/main.zip)
 
 APK는 Android 10 이상에서 설치할 수 있는 테스트 빌드입니다. 기존 RE:CARE가 설치되어 있다면 업데이트로 설치하세요. 앱을 삭제하면 기기 내 기록도 삭제됩니다.

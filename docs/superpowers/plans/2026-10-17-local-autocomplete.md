@@ -47,3 +47,6 @@ Implementation started. Baseline from preceding task: 49 tests and static analys
 
 ### Follow-up: source publication
 2026-10-17: the user explicitly requested a GitHub push after local completion. Prepare the implemented source, tests, documentation and screenshots for origin/main. APK publication remains separate; the existing public Release is v1.0.2-mvp.
+
+### Follow-up: APK publication completed
+2026-10-17: user requested packaging and updating the APK. Published the previously verified 1.0.3+4 debug APK at https://github.com/soonTigerPunch/RECARE/releases/tag/v1.0.3-mvp, targeting source commit 8ce3e83d72f12ff3bead42c93c778db60d2f3d51. Verified GitHub asset size/SHA-256 against the local build and unauthenticated download access. Updated the README download link; prior releases remain available. Device installation was not performed.

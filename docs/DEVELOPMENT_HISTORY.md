@@ -368,6 +368,21 @@ GitHub 공개는 소스와 APK 공유 방식의 변경이다. 앱 내부에 서�
 - 최종 독립 코드 리뷰: 조치가 필요한 결함 지적 없음.
 - Android debug APK: **1.0.3+4 빌드 성공**. `build/app/outputs/flutter-apk/app-debug.apk`.
 - 이번 버전의 실기기 설치·조작 검사는 하지 않았다. 앞선 기기 확인은 1.0.2 단계 기록이다.
-- 서버·새 패키지·AI 모델을 추가하지 않았다. 사용자의 후속 요청에 따라 이번 변경의 소스·문서·테스트·화면 캡처를 GitHub 반영 대상으로 정리했다. 공개 Release 갱신은 별도이며 APK 다운로드는 계속 v1.0.2-mvp다.
+- 서버·새 패키지·AI 모델을 추가하지 않았다. 소스·문서·테스트·화면 캡처를 커밋 `8ce3e83`으로 GitHub main에 반영했고, 후속 요청으로 v1.0.3-mvp APK도 공개했다. 배포 확인은 12절을 참고한다.
 
-다음 배포 시에는 새 APK로 실기기 흐름을 확인하고 공개 소스와 Release를 함께 갱신한다. 사진 첨부·요약 알림·AI 레시피는 기존 후속 범위로 남는다.
+새 APK의 실기기 전체 흐름 확인은 후속 검증으로 남는다. 사진 첨부·요약 알림·AI 레시피는 기존 후속 범위로 남는다.
+
+## 12 Android APK 1.0.3 공개 업데이트
+
+2026-10-17, 사용자의 APK 업데이트 요청에 따라 [v1.0.3-mvp](https://github.com/soonTigerPunch/RECARE/releases/tag/v1.0.3-mvp) 테스트 릴리스를 공개했다. 이전 v1.0.2-mvp 릴리스는 이력으로 보존하고 README의 다운로드 링크를 새 버전으로 갱신했다.
+
+- APK: [RECARE-1.0.3-mvp.apk](https://github.com/soonTigerPunch/RECARE/releases/download/v1.0.3-mvp/RECARE-1.0.3-mvp.apk)
+- 소스 커밋: `8ce3e83d72f12ff3bead42c93c778db60d2f3d51`
+- 앱 버전 1.0.3, versionCode 4, 패키지 `com.detabev.recare`
+- Android 10(API 29) 이상, target SDK 36, debug 테스트 빌드
+- 파일 크기: 165,836,584 bytes
+- SHA-256: `bde44ac205377995bf293eda9f0a1d0384954197285ed228ce0c8eda8fc5761a`
+- 기존 검증된 APK와 업로드된 GitHub 자산의 크기·SHA-256이 일치한다.
+- 인증 없이 릴리스 정보와 APK 다운로드 링크에 접근되는 것을 확인했다.
+
+기존 앱을 삭제하지 않고 업데이트 설치한다. 기기 내 데이터 유지 확인을 포함한 이번 버전의 실기기 설치·조작 검증은 아직 진행하지 않았다. 기존 67개 테스트·정적 분석·렌더링·APK 빌드 결과는 11절에 기록했다.
