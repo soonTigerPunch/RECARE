@@ -54,6 +54,18 @@ enum ActionKind {
       values.firstWhere((kind) => kind.code == code);
 }
 
+enum WasteReason {
+  tooMuch('TOO_MUCH', '너무 많이 샀어요'),
+  forgot('FORGOT', '깜빡했어요'),
+  disliked('DISLIKED', '입맛에 안 맞아요'),
+  other('OTHER', '기타');
+
+  const WasteReason(this.code, this.label);
+  final String code, label;
+  static WasteReason fromCode(String code) =>
+      values.firstWhere((reason) => reason.code == code);
+}
+
 void require(bool valid, String message) {
   if (!valid) throw ArgumentError(message);
 }
@@ -153,6 +165,7 @@ class FoodRecord {
     required this.unit,
     required DateTime date,
     required this.cost,
+    this.wasteReason,
   }) : date = civilDate(date);
   final String id, foodId, foodName;
   final ActionKind kind;
@@ -160,6 +173,7 @@ class FoodRecord {
   final FoodUnit unit;
   final DateTime date;
   final int? cost;
+  final WasteReason? wasteReason;
   factory FoodRecord.fromRow(Map<String, Object?> row) => FoodRecord(
     id: row['id'] as String,
     foodId: row['food_id'] as String,
@@ -169,6 +183,9 @@ class FoodRecord {
     unit: FoodUnit.fromCode(row['unit'] as String),
     date: DateTime.parse(row['date'] as String),
     cost: row['cost'] as int?,
+    wasteReason: row['waste_reason'] == null
+        ? null
+        : WasteReason.fromCode(row['waste_reason'] as String),
   );
   Map<String, Object?> toRow() => {
     'id': id,
@@ -179,6 +196,7 @@ class FoodRecord {
     'unit': unit.code,
     'date': dateText(date),
     'cost': cost,
+    'waste_reason': wasteReason?.code,
   };
 }
 
@@ -204,7 +222,12 @@ Processing processFood(
   DateTime date,
   String requestId, {
   required DateTime today,
+  WasteReason? wasteReason,
 }) {
+  require(
+    kind == ActionKind.waste || wasteReason == null,
+    '폐기할 때만 이유를 기록할 수 있어요.',
+  );
   require(unit.family == food.unit.family, '등록한 식재료와 같은 종류의 단위를 선택해주세요.');
   require(amount > 0 && amount <= food.remaining, '처리 수량은 남은 재고 이하로 입력해주세요.');
   final day = civilDate(date);
@@ -225,6 +248,7 @@ Processing processFood(
       unit: unit,
       date: day,
       cost: cost,
+      wasteReason: wasteReason,
     ),
   );
 }

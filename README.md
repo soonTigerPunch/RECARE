@@ -1,6 +1,8 @@
 # RE:CARE
 
-서버 없이 기기 내 SQLite로 식재료 재고와 폐기 금액을 기록하는 Flutter MVP입니다.
+서버 없이 기기 내 SQLite로 식재료 재고와 폐기 금액을 기록하는 Flutter 앱입니다.
+
+현재 개발 버전은 **1.1.0+5**입니다. 팀 검토용 [변경 내역](CHANGELOG.md)에서 기능·저장 규칙·검증 범위를 확인할 수 있습니다.
 
 새 식재료 등록에서 이름을 입력하면 대표 이미지와 함께 기본 목록·이전 등록 이력을 제안합니다. 선택하면 이름과 수량·단위를 채우며 소비기한과 실제 구매금액은 새로 입력합니다. 검색은 기기 안에서 처리합니다. 자세한 범위는 [자동완성 안내](docs/AUTOCOMPLETE.md)를 참고하세요.
 
@@ -20,9 +22,23 @@ Android 최소 버전은 Android 10(API 29)입니다. APK는 `build/app/outputs/
 
 이전 내용·저장 규칙·백업 정보는 [마이그레이션 문서](docs/MIGRATION.md)를 참고하세요.
 
+## 클라우드 개발과 새 기능
+
+클라우드 프로젝트는 `/workspace/RECARE-main`입니다. `/workspace/RECARE.code-workspace`를 열면 SDK 경로와 Analyze·Test·Debug APK 작업을 사용할 수 있습니다. 터미널에서는 다음과 같이 환경을 불러옵니다.
+
+```bash
+source /workspace/recare-env.sh
+cd /workspace/RECARE-main
+flutter analyze --no-pub
+flutter test --no-pub
+flutter build apk --debug --no-pub
+```
+
+현재 작업 브랜치 `feature/everyday-usability`에는 빠른 먹음·폐기와 실행 취소, 여러 재료 등록, 장보기 구매 등록, Android 일일 소비기한 알림, 폐기 사유·주간 인사이트를 추가했습니다. 사용법과 데이터 보존 규칙은 [일상 사용성 기능](docs/EVERYDAY_USABILITY.md)에 정리했습니다. 팀 검토용 작업 브랜치이며, 아래 공개 다운로드는 이전 배포본입니다.
+
 ## 팀원 다운로드
 
-현재 소스와 공개 테스트 APK는 **1.0.3+4**입니다. 식재료 자동완성과 최신 안내 문구가 포함되어 있습니다.
+공개 배포 소스와 테스트 APK는 **1.0.3+4**입니다. 식재료 자동완성과 최신 안내 문구가 포함되어 있습니다.
 
 - [테스트 APK 다운로드](https://github.com/soonTigerPunch/RECARE/releases/tag/v1.0.3-mvp)
 - [소스 ZIP 다운로드](https://github.com/soonTigerPunch/RECARE/archive/refs/heads/main.zip)
@@ -32,6 +48,13 @@ APK는 Android 10 이상에서 설치할 수 있는 테스트 빌드입니다. �
 개발 환경은 Flutter 3.47.6 / Dart 3.13.5입니다. 저장소를 받은 뒤 `flutter pub get`, `flutter test`, `flutter run` 순서로 실행합니다. Android SDK와 사용할 기기 설정은 각 개발자의 환경에 맞게 지정합니다.
 
 ## 검증
+
+- 2026-10-22 개발 버전 1.1.0+5: 전체 테스트 **120건 통과**, 정적 검사 문제 없음, Android debug APK 빌드 성공. 순차 소비기한 팝업·복귀·날짜 변경·DB v3 이전 포함.
+- Kotlin 알림 정책 14개, 실제 알림 SQL fixture 6개 검증 통과. 실기기 알림 전달·권한·재부팅은 QA 확인 대상.
+
+- 2026-10-21 클라우드 작업본: 전체 Flutter 테스트 **102건 통과**, 정적 검사 문제 없음, Android debug APK 빌드 성공.
+- 알림 시간·일일 중복 방지 Kotlin 정책 검증 9개 통과. 실제 기기의 알림 전달·권한 창·재부팅 동작은 미확인.
+- 아래 항목은 이전 공개 버전의 검증 기록입니다.
 
 - 2026-10-17: 자동완성·계산·저장·수정·삭제·수량 선택·설정·화면 흐름 테스트 67건 통과
 - `flutter analyze --no-pub` 문제 없음

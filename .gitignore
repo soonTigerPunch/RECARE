@@ -64,3 +64,6 @@ app.*.map.json
 *.sqlite3
 !test/fixtures/kotlin_v1.db
 recare_preferences.json
+
+# Kotlin compiler local state
+**/.kotlin/

@@ -9,6 +9,13 @@ import 'data/preferences.dart';
 import 'domain/inventory.dart';
 import 'domain/portions.dart';
 import 'domain/food_catalog.dart';
+import 'domain/shopping.dart';
+import 'services/reminder_service.dart';
+import 'ui/reminder_settings.dart';
+import 'ui/expiry_check_in_dialog.dart';
+import 'ui/batch_registration.dart';
+import 'ui/shopping_page.dart';
+import 'ui/waste_insights_view.dart';
 import 'ui/food_illustration.dart';
 import 'ui/ingredient_autocomplete.dart';
 import 'ui/design_system.dart';
@@ -28,16 +35,21 @@ class RecareApp extends StatefulWidget {
     super.key,
     this.repositoryFactory,
     this.preferencesFactory,
+    this.reminderService,
+    this.automaticCheckIns = true,
     this.clock,
   });
   final RepositoryFactory? repositoryFactory;
   final PreferencesFactory? preferencesFactory;
+  final ReminderService? reminderService;
+  final bool automaticCheckIns;
   final Clock? clock;
   @override
   State<RecareApp> createState() => _RecareAppState();
 }
 
 class _RecareAppState extends State<RecareApp> {
+  final _routes = RouteObserver<ModalRoute<dynamic>>();
   AppPreferences _preferences = const AppPreferences();
   PreferencesStore? _store;
   bool _preferencesBusy = true;
@@ -104,6 +116,7 @@ class _RecareAppState extends State<RecareApp> {
   @override
   Widget build(BuildContext context) => MaterialApp(
     title: 'RE:CARE',
+    navigatorObservers: [_routes],
     debugShowCheckedModeBanner: false,
     locale: const Locale('ko'),
     supportedLocales: const [Locale('ko')],
@@ -116,6 +129,9 @@ class _RecareAppState extends State<RecareApp> {
       AppAppearance.dark => ThemeMode.dark,
     },
     home: InventoryHome(
+      reminderService: widget.reminderService,
+      automaticCheckIns: widget.automaticCheckIns,
+      routeObserver: _routes,
       repositoryFactory: widget.repositoryFactory ?? InventoryRepository.open,
       clock: widget.clock ?? DateTime.now,
       preferences: _preferences,
@@ -142,6 +158,59 @@ void notify(BuildContext context, String message) {
     ..showSnackBar(SnackBar(content: Text(message)));
 }
 
+Future<void> addFoodToShopping(
+  InventoryRepository repository,
+  Food food,
+  DateTime now,
+) => repository.addShoppingItem(
+  ShoppingItem(
+    id: const Uuid().v4(),
+    name: food.name,
+    unit: food.unit,
+    amount: food.total,
+    created: now,
+  ),
+);
+
+void showProcessingUndo(
+  BuildContext context, {
+  required InventoryRepository repository,
+  required String recordId,
+  required ActionKind kind,
+  required Future<void> Function() onChanged,
+}) {
+  final messenger = ScaffoldMessenger.of(context);
+  messenger.hideCurrentSnackBar();
+  messenger.showSnackBar(
+    SnackBar(
+      content: Text('${kind.label} 기록을 저장했어요.'),
+      duration: const Duration(seconds: 8),
+      action: SnackBarAction(
+        label: '실행 취소',
+        onPressed: () {
+          if (!context.mounted) return;
+          unawaited(() async {
+            try {
+              final undone = await repository.undoProcess(recordId);
+              await onChanged();
+              if (context.mounted) {
+                notify(
+                  context,
+                  undone
+                      ? '처리를 되돌렸어요. 재고와 금액을 복원했어요.'
+                      : '지금은 이 처리를 되돌릴 수 없어요. 최신 재고를 확인해주세요.',
+                );
+              }
+            } catch (e) {
+              if (context.mounted) notify(context, errorText(e));
+            }
+          }());
+        },
+      ),
+    ),
+  );
+}
+
 String deadline(Food food, DateTime today) {
   if (food.remaining == 0) return '모두 처리됨';
   final days = food.expiry.difference(civilDate(today)).inDays;
@@ -163,6 +232,9 @@ class InventoryHome extends StatefulWidget {
     required this.preferencesError,
     required this.onPreferencesChanged,
     required this.onPreferencesRetry,
+    this.reminderService,
+    this.automaticCheckIns = true,
+    this.routeObserver,
   });
   final RepositoryFactory repositoryFactory;
   final Clock clock;
@@ -171,35 +243,89 @@ class InventoryHome extends StatefulWidget {
   final String? preferencesError;
   final Future<void> Function(AppPreferences) onPreferencesChanged;
   final VoidCallback onPreferencesRetry;
+  final ReminderService? reminderService;
+  final bool automaticCheckIns;
+  final RouteObserver<ModalRoute<dynamic>>? routeObserver;
   @override
   State<InventoryHome> createState() => _InventoryHomeState();
 }
 
 class _InventoryHomeState extends State<InventoryHome>
-    with WidgetsBindingObserver {
+    with WidgetsBindingObserver, RouteAware {
+  ModalRoute<dynamic>? _observedRoute;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final route = ModalRoute.of(context);
+    if (route != null && route != _observedRoute) {
+      widget.routeObserver?.unsubscribe(this);
+      widget.routeObserver?.subscribe(this, route);
+      _observedRoute = route;
+    }
+  }
+
+  @override
+  void didPopNext() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) unawaited(_maybeShowCheckIns());
+    });
+  }
+
   InventoryRepository? _repo;
   InventorySnapshot _snapshot = InventorySnapshot([], []);
   bool _loading = true, _failed = false;
   int _tab = 0;
   late DateTime _today;
   Timer? _timer;
+  late final ReminderService _reminders;
+  StreamSubscription<void>? _reminderOpens;
+  bool _urgentOnly = false;
+  bool _checkInsPending = true, _checkInShowing = false;
   @override
   void initState() {
     super.initState();
     _today = civilDate(widget.clock());
+    _reminders = widget.reminderService ?? ReminderService();
+    _reminderOpens = _reminders.openUrgentRequests.listen((_) => _openUrgent());
+    unawaited(_consumeReminder());
     WidgetsBinding.instance.addObserver(this);
     unawaited(_refresh());
     _timer = Timer.periodic(const Duration(minutes: 1), (_) {
       final day = civilDate(widget.clock());
       if (day != _today && mounted) {
         setState(() => _today = day);
+        _checkInsPending = true;
+        if (!_loading) unawaited(_refresh());
       }
     });
+  }
+
+  void _openUrgent() {
+    if (!mounted) return;
+    _checkInsPending = true;
+    if (!_checkInShowing) {
+      Navigator.of(context).popUntil((route) => route.isFirst);
+    }
+    setState(() {
+      _tab = 1;
+      _urgentOnly = true;
+    });
+    if (!_loading) unawaited(_refresh());
+  }
+
+  Future<void> _consumeReminder() async {
+    try {
+      if (await _reminders.consumeOpenUrgent()) _openUrgent();
+    } catch (_) {
+      /* A reminder bridge failure must not block offline inventory. */
+    }
   }
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed && mounted) {
+      _checkInsPending = true;
       setState(() => _today = civilDate(widget.clock()));
       if (!_loading) unawaited(_refresh());
     }
@@ -208,6 +334,9 @@ class _InventoryHomeState extends State<InventoryHome>
   @override
   void dispose() {
     _timer?.cancel();
+    widget.routeObserver?.unsubscribe(this);
+    unawaited(_reminderOpens?.cancel());
+    if (widget.reminderService == null) _reminders.dispose();
     WidgetsBinding.instance.removeObserver(this);
     if (_repo != null) unawaited(_repo!.close());
     super.dispose();
@@ -233,6 +362,7 @@ class _InventoryHomeState extends State<InventoryHome>
           _snapshot = snapshot;
           _loading = false;
         });
+        unawaited(_maybeShowCheckIns());
       }
     } catch (_) {
       if (mounted) {
@@ -241,6 +371,53 @@ class _InventoryHomeState extends State<InventoryHome>
           _loading = false;
         });
       }
+    }
+  }
+
+  bool get _foreground =>
+      WidgetsBinding.instance.lifecycleState == null ||
+      WidgetsBinding.instance.lifecycleState == AppLifecycleState.resumed;
+
+  Future<void> _maybeShowCheckIns() async {
+    if (!_foreground ||
+        !widget.automaticCheckIns ||
+        !_checkInsPending ||
+        _checkInShowing ||
+        !mounted ||
+        _loading ||
+        _failed ||
+        _repo == null ||
+        ModalRoute.of(context)?.isCurrent != true) {
+      return;
+    }
+    _checkInShowing = true;
+    _checkInsPending = false;
+    var opened = false;
+    try {
+      final foods = await _repo!.pendingExpiryCheckIns(widget.clock());
+      if (!mounted ||
+          foods.isEmpty ||
+          !_foreground ||
+          ModalRoute.of(context)?.isCurrent != true) {
+        if (mounted && foods.isNotEmpty) _checkInsPending = true;
+        return;
+      }
+      opened = true;
+      await showDialog<void>(
+        context: context,
+        barrierDismissible: false,
+        builder: (_) => ExpiryCheckInDialog(
+          repository: _repo!,
+          foods: foods,
+          clock: widget.clock,
+        ),
+      );
+    } catch (_) {
+      // A check-in failure must never prevent opening the offline inventory.
+      _checkInsPending = true;
+    } finally {
+      _checkInShowing = false;
+      if (opened && mounted) unawaited(_refresh());
     }
   }
 
@@ -254,14 +431,89 @@ class _InventoryHomeState extends State<InventoryHome>
     if (saved == true) {
       await _refresh();
       if (mounted) notify(context, '식재료를 등록했어요.');
+    } else {
+      unawaited(_maybeShowCheckIns());
+    }
+  }
+
+  Future<void> _batch() async {
+    final saved = await Navigator.of(context).push<bool>(
+      MaterialPageRoute(
+        builder: (_) =>
+            BatchRegistrationPage(repository: _repo!, clock: widget.clock),
+      ),
+    );
+    if (mounted && saved == true) {
+      await _refresh();
+      if (mounted) notify(context, '선택한 재료를 모두 등록했어요.');
+    }
+  }
+
+  Future<void> _shopping() async {
+    await Navigator.of(context).push<void>(
+      MaterialPageRoute(
+        builder: (_) => ShoppingPage(repository: _repo!, clock: widget.clock),
+      ),
+    );
+    if (mounted) await _refresh();
+  }
+
+  Future<void> _quickProcess(Food food, ActionKind kind) async {
+    String? recordId;
+    final saved = await showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => ProcessDialog(
+        repository: _repo!,
+        food: food,
+        kind: kind,
+        clock: widget.clock,
+        onSaved: (id) => recordId = id,
+      ),
+    );
+    if (!mounted || saved != true) return;
+    await _refresh();
+    if (mounted && recordId != null) {
+      showProcessingUndo(
+        context,
+        repository: _repo!,
+        recordId: recordId!,
+        kind: kind,
+        onChanged: _refresh,
+      );
+    }
+  }
+
+  Future<void> _addShopping(Food food) async {
+    try {
+      await addFoodToShopping(_repo!, food, widget.clock());
+      if (mounted) notify(context, '장보기 목록에 담았어요. 같은 항목은 한 번만 표시해요.');
+    } catch (e) {
+      if (mounted) notify(context, errorText(e));
     }
   }
 
   Future<void> _open(Food food) async {
     await Navigator.of(context).push<void>(
       MaterialPageRoute(
-        builder: (_) =>
-            FoodDetail(repository: _repo!, food: food, clock: widget.clock),
+        builder: (_) => FoodDetail(
+          repository: _repo!,
+          food: food,
+          clock: widget.clock,
+          onProcessed: (recordId, kind, refreshDetail) {
+            if (!mounted) return;
+            showProcessingUndo(
+              context,
+              repository: _repo!,
+              recordId: recordId,
+              kind: kind,
+              onChanged: () async {
+                if (mounted) await _refresh();
+                await refreshDetail();
+              },
+            );
+          },
+        ),
       ),
     );
     if (mounted) await _refresh();
@@ -289,7 +541,16 @@ class _InventoryHomeState extends State<InventoryHome>
     }
 
     final visible =
-        (widget.preferences.includeFinished ? _snapshot.foods : active).toList()
+        (widget.preferences.includeFinished ? _snapshot.foods : active)
+            .where(
+              (food) =>
+                  !_urgentOnly ||
+                  (food.remaining > 0 &&
+                      !food.expiry.isAfter(
+                        _today.add(const Duration(days: 3)),
+                      )),
+            )
+            .toList()
           ..sort(compareExpiry);
     final urgent =
         active
@@ -305,6 +566,14 @@ class _InventoryHomeState extends State<InventoryHome>
           1 => '식재료 목록',
           _ => '설정',
         }),
+        actions: [
+          IconButton(
+            key: const ValueKey('open-shopping'),
+            tooltip: '장보기 목록',
+            onPressed: _loading || _failed || _repo == null ? null : _shopping,
+            icon: const Icon(Icons.shopping_basket_outlined),
+          ),
+        ],
       ),
       bottomNavigationBar: NavigationBar(
         selectedIndex: _tab,
@@ -327,6 +596,7 @@ class _InventoryHomeState extends State<InventoryHome>
                 error: widget.preferencesError,
                 onChanged: widget.onPreferencesChanged,
                 onRetry: widget.onPreferencesRetry,
+                reminderService: _reminders,
               )
             : _loading
             ? const Center(child: CircularProgressIndicator())
@@ -380,6 +650,31 @@ class _InventoryHomeState extends State<InventoryHome>
                                           ),
                                         ],
                                       ),
+                                      Wrap(
+                                        spacing: Space.sm,
+                                        children: [
+                                          ChoiceChip(
+                                            key: const ValueKey(
+                                              'inventory-all',
+                                            ),
+                                            label: const Text('전체'),
+                                            selected: !_urgentOnly,
+                                            onSelected: (_) => setState(
+                                              () => _urgentOnly = false,
+                                            ),
+                                          ),
+                                          ChoiceChip(
+                                            key: const ValueKey(
+                                              'inventory-urgent',
+                                            ),
+                                            label: const Text('3일 이내·지난 재료'),
+                                            selected: _urgentOnly,
+                                            onSelected: (_) => setState(
+                                              () => _urgentOnly = true,
+                                            ),
+                                          ),
+                                        ],
+                                      ),
                                       if (visible.isNotEmpty) ...[
                                         const SizedBox(height: Space.sm),
                                         Text(
@@ -403,7 +698,9 @@ class _InventoryHomeState extends State<InventoryHome>
                                         CrossAxisAlignment.start,
                                     children: [
                                       Text(
-                                        _snapshot.foods.isEmpty
+                                        _urgentOnly
+                                            ? '3일 이내이거나 소비기한이 지난 재료가 없어요.'
+                                            : _snapshot.foods.isEmpty
                                             ? '아직 등록된 식재료가 없어요.'
                                             : '보관 중인 식재료가 없어요.',
                                         style: Theme.of(context)
@@ -412,7 +709,9 @@ class _InventoryHomeState extends State<InventoryHome>
                                       ),
                                       const SizedBox(height: Space.sm),
                                       Text(
-                                        _snapshot.foods.isEmpty
+                                        _urgentOnly
+                                            ? '전체를 선택하면 다른 재료를 볼 수 있어요.'
+                                            : _snapshot.foods.isEmpty
                                             ? '냉장고 속 식재료를 등록해보세요.'
                                             : '설정에서 처리 완료 표시를 켜면 이전 식재료를 볼 수 있어요.',
                                         style: Theme.of(context)
@@ -428,6 +727,11 @@ class _InventoryHomeState extends State<InventoryHome>
                                 food: food,
                                 today: _today,
                                 onTap: () => _open(food),
+                                onEat: () =>
+                                    _quickProcess(food, ActionKind.eat),
+                                onWaste: () =>
+                                    _quickProcess(food, ActionKind.waste),
+                                onShopping: () => _addShopping(food),
                               );
                             },
                           ),
@@ -439,12 +743,20 @@ class _InventoryHomeState extends State<InventoryHome>
                       Space.xl,
                       Space.lg,
                     ),
-                    child: SizedBox(
-                      width: double.infinity,
-                      child: FilledButton(
-                        onPressed: _add,
-                        child: const Text('식재료 등록'),
-                      ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        FilledButton(
+                          onPressed: _add,
+                          child: const Text('식재료 등록'),
+                        ),
+                        TextButton.icon(
+                          key: const ValueKey('open-batch'),
+                          onPressed: _batch,
+                          icon: const Icon(Icons.playlist_add),
+                          label: const Text('한 번에 등록'),
+                        ),
+                      ],
                     ),
                   ),
                 ],
@@ -558,7 +870,9 @@ class SettingsView extends StatelessWidget {
     required this.error,
     required this.onChanged,
     required this.onRetry,
+    this.reminderService,
   });
+  final ReminderService? reminderService;
   final AppPreferences preferences;
   final bool busy, available;
   final String? error;
@@ -571,6 +885,21 @@ class SettingsView extends StatelessWidget {
     padding: const EdgeInsets.all(Space.xl),
     children: [
       if (busy) const LinearProgressIndicator(),
+      if (error != null) ...[
+        const SizedBox(height: Space.lg),
+        Text(
+          error!,
+          style: Theme.of(context).textTheme.bodyMedium
+              ?.copyWith(color: Theme.of(context).colorScheme.error),
+        ),
+        Align(
+          alignment: Alignment.centerLeft,
+          child: TextButton(
+            onPressed: busy ? null : onRetry,
+            child: const Text('다시 시도'),
+          ),
+        ),
+      ],
       Text('화면', style: Theme.of(context).textTheme.titleMedium),
       const SizedBox(height: Space.lg),
       Text('화면 모드', style: Theme.of(context).textTheme.bodyMedium),
@@ -616,6 +945,10 @@ class SettingsView extends StatelessWidget {
       const SizedBox(height: Space.xl),
       const Divider(height: 1),
       const SizedBox(height: Space.xl),
+      if (reminderService != null) ...[
+        ReminderSettingsCard(service: reminderService!),
+        const SizedBox(height: Space.xl),
+      ],
       Text('저장과 기록', style: Theme.of(context).textTheme.titleMedium),
       const SizedBox(height: Space.md),
       Text(
@@ -627,21 +960,6 @@ class SettingsView extends StatelessWidget {
         '이번 주 폐기금액은 월요일부터 오늘까지의 폐기 기록을 합산합니다. 구매금액 미입력은 0원과 구분합니다.',
         style: Theme.of(context).textTheme.bodySmall,
       ),
-      if (error != null) ...[
-        const SizedBox(height: Space.lg),
-        Text(
-          error!,
-          style: Theme.of(context).textTheme.bodyMedium
-              ?.copyWith(color: Theme.of(context).colorScheme.error),
-        ),
-        Align(
-          alignment: Alignment.centerLeft,
-          child: TextButton(
-            onPressed: busy ? null : onRetry,
-            child: const Text('다시 시도'),
-          ),
-        ),
-      ],
     ],
   );
 }
@@ -652,10 +970,17 @@ class FoodDetail extends StatefulWidget {
     required this.repository,
     required this.food,
     required this.clock,
+    this.onProcessed,
   });
   final InventoryRepository repository;
   final Food food;
   final Clock clock;
+  final void Function(
+    String recordId,
+    ActionKind kind,
+    Future<void> Function() refreshDetail,
+  )?
+  onProcessed;
   @override
   State<FoodDetail> createState() => _FoodDetailState();
 }
@@ -663,7 +988,7 @@ class FoodDetail extends StatefulWidget {
 class _FoodDetailState extends State<FoodDetail> {
   late Food _food;
   List<FoodRecord> _records = [];
-  bool _loading = true, _failed = false, _deleting = false;
+  bool _loading = true, _failed = false, _deleting = false, _hasHistory = false;
   @override
   void initState() {
     super.initState();
@@ -681,9 +1006,11 @@ class _FoodDetailState extends State<FoodDetail> {
     try {
       final snapshot = await widget.repository.load();
       final food = snapshot.foods.firstWhere((f) => f.id == _food.id);
+      final hasHistory = await widget.repository.hasProcessingHistory(food.id);
       if (mounted) {
         setState(() {
           _food = food;
+          _hasHistory = hasHistory;
           _records = snapshot.records
               .where((r) => r.foodId == food.id)
               .toList();
@@ -706,7 +1033,7 @@ class _FoodDetailState extends State<FoodDetail> {
         builder: (_) => FoodEditor(
           repository: widget.repository,
           food: _food,
-          hasRecords: _records.isNotEmpty,
+          hasRecords: _hasHistory,
           clock: widget.clock,
         ),
       ),
@@ -719,6 +1046,7 @@ class _FoodDetailState extends State<FoodDetail> {
   }
 
   Future<void> _process(ActionKind kind) async {
+    String? recordId;
     final saved = await showDialog<bool>(
       context: context,
       barrierDismissible: false,
@@ -727,18 +1055,42 @@ class _FoodDetailState extends State<FoodDetail> {
         food: _food,
         kind: kind,
         clock: widget.clock,
+        onSaved: (id) => recordId = id,
       ),
     );
     if (!mounted) return;
     if (saved == true) {
       await _refresh();
-      if (mounted) notify(context, '${kind.label} 기록을 저장했어요.');
+      if (mounted && recordId != null) {
+        if (widget.onProcessed != null) {
+          widget.onProcessed!(recordId!, kind, () async {
+            if (mounted) await _refresh();
+          });
+        } else {
+          showProcessingUndo(
+            context,
+            repository: widget.repository,
+            recordId: recordId!,
+            kind: kind,
+            onChanged: _refresh,
+          );
+        }
+      }
+    }
+  }
+
+  Future<void> _addToShopping() async {
+    try {
+      await addFoodToShopping(widget.repository, _food, widget.clock());
+      if (mounted) notify(context, '장보기 목록에 담았어요. 같은 재료·수량은 한 번만 담습니다.');
+    } catch (e) {
+      if (mounted) notify(context, errorText(e));
     }
   }
 
   Future<void> _delete() async {
     if (_loading || _failed || _deleting) return;
-    if (_records.isNotEmpty) {
+    if (_hasHistory) {
       await showDialog<void>(
         context: context,
         builder: (dialogContext) => AlertDialog(
@@ -874,6 +1226,15 @@ class _FoodDetailState extends State<FoodDetail> {
                       ),
                     ],
                   ),
+                  if (_food.remaining == 0) ...[
+                    const SizedBox(height: Space.md),
+                    OutlinedButton.icon(
+                      key: const ValueKey('detail-shopping-add'),
+                      onPressed: _loading || _deleting ? null : _addToShopping,
+                      icon: const Icon(Icons.add_shopping_cart_outlined),
+                      label: const Text('다음 장보기 목록에 추가'),
+                    ),
+                  ],
                   const SizedBox(height: Space.xxl),
                   const Divider(height: 1),
                   const SizedBox(height: Space.md),
@@ -895,7 +1256,9 @@ class _FoodDetailState extends State<FoodDetail> {
                   const SizedBox(height: Space.md),
                   if (!_loading && _records.isEmpty)
                     Text(
-                      '아직 처리 기록이 없어요.',
+                      _hasHistory
+                          ? '현재 반영된 처리 기록이 없어요. 되돌린 이력은 보존됩니다.'
+                          : '아직 처리 기록이 없어요.',
                       style: Theme.of(context).textTheme.bodyMedium,
                     ),
                   for (final record in _records)
@@ -1164,7 +1527,9 @@ class ProcessDialog extends StatefulWidget {
     required this.food,
     required this.kind,
     required this.clock,
+    this.onSaved,
   });
+  final ValueChanged<String>? onSaved;
   final InventoryRepository repository;
   final Food food;
   final ActionKind kind;
@@ -1180,6 +1545,7 @@ class _ProcessDialogState extends State<ProcessDialog> {
   late DateTime _date;
   bool _busy = false, _manual = false;
   int? _denominator, _presetAmount;
+  WasteReason? _wasteReason;
   String? _error;
 
   @override
@@ -1289,8 +1655,12 @@ class _ProcessDialogState extends State<ProcessDialog> {
         date: _date,
         requestId: _request,
         today: widget.clock(),
+        wasteReason: _wasteReason,
       );
-      if (mounted) Navigator.of(context).pop(true);
+      if (mounted) {
+        widget.onSaved?.call(_request);
+        Navigator.of(context).pop(true);
+      }
     } catch (e) {
       if (mounted) {
         setState(() {
@@ -1411,6 +1781,37 @@ class _ProcessDialogState extends State<ProcessDialog> {
                   ),
                 ],
                 const SizedBox(height: Space.lg),
+                if (widget.kind == ActionKind.waste) ...[
+                  Text(
+                    '폐기 이유 (선택)',
+                    style: Theme.of(context).textTheme.bodyLarge,
+                  ),
+                  const SizedBox(height: Space.sm),
+                  Wrap(
+                    spacing: Space.sm,
+                    runSpacing: Space.xs,
+                    children: [
+                      ChoiceChip(
+                        label: const Text('선택 안 함'),
+                        selected: _wasteReason == null,
+                        onSelected: _busy
+                            ? null
+                            : (_) => setState(() => _wasteReason = null),
+                      ),
+                      for (final reason in WasteReason.values)
+                        ChoiceChip(
+                          key: ValueKey('waste-reason-${reason.name}'),
+                          label: Text(reason.label),
+                          selected: _wasteReason == reason,
+                          showCheckmark: false,
+                          onSelected: _busy
+                              ? null
+                              : (_) => setState(() => _wasteReason = reason),
+                        ),
+                    ],
+                  ),
+                  const SizedBox(height: Space.lg),
+                ],
                 DateButton(
                   label: '처리 날짜',
                   value: _date,
@@ -1486,6 +1887,8 @@ class WeekView extends StatelessWidget {
       ),
       const SizedBox(height: Space.xxl),
       const Divider(height: 1),
+      const SizedBox(height: Space.xl),
+      WasteInsightsView(week: week),
       const SizedBox(height: Space.xl),
       Text('폐기 내역', style: Theme.of(context).textTheme.titleMedium),
       const SizedBox(height: Space.md),
@@ -1586,10 +1989,14 @@ class IngredientRow extends StatelessWidget {
     required this.food,
     required this.today,
     required this.onTap,
+    this.onEat,
+    this.onWaste,
+    this.onShopping,
   });
   final Food food;
   final DateTime today;
   final VoidCallback onTap;
+  final VoidCallback? onEat, onWaste, onShopping;
   @override
   Widget build(BuildContext context) => Column(
     children: [
@@ -1634,6 +2041,37 @@ class IngredientRow extends StatelessWidget {
           ),
         ),
       ),
+      if (food.remaining > 0 && (onEat != null || onWaste != null))
+        Align(
+          alignment: Alignment.centerLeft,
+          child: Wrap(
+            spacing: Space.sm,
+            children: [
+              TextButton.icon(
+                key: ValueKey('quick-eat-${food.id}'),
+                onPressed: onEat,
+                icon: const Icon(Icons.restaurant_outlined),
+                label: const Text('먹음'),
+              ),
+              TextButton.icon(
+                key: ValueKey('quick-waste-${food.id}'),
+                onPressed: onWaste,
+                icon: const Icon(Icons.delete_outline),
+                label: const Text('폐기'),
+              ),
+            ],
+          ),
+        ),
+      if (food.remaining == 0 && onShopping != null)
+        Align(
+          alignment: Alignment.centerLeft,
+          child: TextButton.icon(
+            key: ValueKey('shopping-add-${food.id}'),
+            onPressed: onShopping,
+            icon: const Icon(Icons.add_shopping_cart),
+            label: const Text('장보기 추가'),
+          ),
+        ),
       const Divider(height: 1),
     ],
   );
@@ -1752,7 +2190,8 @@ class RecordRow extends StatelessWidget {
         ),
         const SizedBox(height: Space.sm),
         Text(
-          '${dateText(record.date)} · ${record.unit.quantityText(record.amount)} ${record.unit.label}',
+          '${dateText(record.date)} · ${record.unit.quantityText(record.amount)} ${record.unit.label}'
+          '${record.wasteReason == null ? '' : ' · ${record.wasteReason!.label}'}',
           style: Theme.of(context).textTheme.bodySmall,
         ),
         const SizedBox(height: Space.lg),

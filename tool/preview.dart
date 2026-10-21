@@ -85,6 +85,7 @@ void main() {
       RepaintBoundary(
         key: key,
         child: RecareApp(
+          automaticCheckIns: false,
           repositoryFactory: () async => repo!,
           preferencesFactory: () async =>
               PreferencesStore(p.join(temp!.path, 'prefs.json')),

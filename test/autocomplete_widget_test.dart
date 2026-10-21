@@ -39,6 +39,7 @@ void main() {
   Future<void> openRegistration(WidgetTester tester) async {
     await tester.pumpWidget(
       RecareApp(
+        automaticCheckIns: false,
         repositoryFactory: () async => repo,
         preferencesFactory: () async =>
             PreferencesStore(p.join(temp.path, 'prefs.json')),
@@ -277,6 +278,7 @@ void main() {
       });
       await tester.pumpWidget(
         RecareApp(
+          automaticCheckIns: false,
           repositoryFactory: () async => repo,
           preferencesFactory: () async =>
               PreferencesStore(p.join(temp.path, 'prefs.json')),

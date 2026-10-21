@@ -74,6 +74,28 @@ Future<void> openWeeklyDetails(WidgetTester tester) async {
   await settlePage(tester, weeklyPage);
 }
 
+// Insights adds scrollable content between the total and individual records.
+// Verify both values in their own widgets, including records below the viewport.
+Future<void> expectWeeklyAmount(WidgetTester tester, String amount) async {
+  expect(
+    tester.widget<Text>(find.byKey(const ValueKey('weekly-total'))).data,
+    amount,
+  );
+  await reveal(tester, find.byType(RecordRow));
+  expect(
+    find.descendant(
+      of: find.byType(RecordRow).first,
+      matching: find.text(amount),
+    ),
+    findsOneWidget,
+  );
+  final scrollable = find
+      .descendant(of: find.byKey(weeklyPage), matching: find.byType(Scrollable))
+      .first;
+  tester.state<ScrollableState>(scrollable).position.jumpTo(0);
+  await tester.pumpAndSettle();
+}
+
 Future<void> enterManualAmount(
   WidgetTester tester,
   String quantity,
@@ -125,6 +147,7 @@ void main() {
   Future<void> openApp(WidgetTester tester) async {
     await tester.pumpWidget(
       RecareApp(
+        automaticCheckIns: false,
         repositoryFactory: () async => repo,
         preferencesFactory: () async => PreferencesStore(preferencesPath),
         clock: () => today,
@@ -219,7 +242,7 @@ void main() {
       );
       expect(find.text('750원'), findsOneWidget);
       await openWeeklyDetails(tester);
-      expect(find.text('750원'), findsNWidgets(2));
+      await expectWeeklyAmount(tester, '750원');
       expect(find.text('폐기 1건'), findsOneWidget);
       expect(tester.takeException(), isNull);
       await tester.pumpWidget(const SizedBox());
@@ -234,7 +257,7 @@ void main() {
     expect(find.text('금액 미입력'), findsOneWidget);
     expect(find.text('폐기 1건 · 금액 미입력 1건'), findsOneWidget);
     await openWeeklyDetails(tester);
-    expect(find.text('금액 미입력'), findsNWidgets(2));
+    await expectWeeklyAmount(tester, '금액 미입력');
     expect(find.text('0원'), findsNothing);
     expect(find.text('폐기 1건 · 금액 미입력 1건'), findsOneWidget);
     expect(tester.takeException(), isNull);
@@ -271,35 +294,36 @@ void main() {
       });
       await openApp(tester);
       await navigate(tester, '목록', inventoryPage);
-      final expired = find.byKey(const ValueKey('food-expired'));
-      final due = find.byKey(const ValueKey('food-milk'));
-      final later = find.byKey(const ValueKey('food-later'));
-      expect(
-        tester.getTopLeft(expired).dy,
-        lessThan(tester.getTopLeft(due).dy),
-      );
-      expect(tester.getTopLeft(due).dy, lessThan(tester.getTopLeft(later).dy));
-      expect(
-        find.descendant(of: expired, matching: find.text('2일 지남')),
-        findsOneWidget,
-      );
-      expect(
-        find.descendant(of: due, matching: find.text('D-Day')),
-        findsOneWidget,
-      );
-      expect(
-        find.descendant(of: later, matching: find.text('D-2')),
-        findsOneWidget,
-      );
-      for (final food in ['expired', 'milk', 'later']) {
+      final positions = <double>[];
+      for (final item in [
+        ('expired', '2일 지남'),
+        ('milk', 'D-Day'),
+        ('later', 'D-2'),
+      ]) {
+        final row = find.byKey(ValueKey('food-${item.$1}'));
+        await reveal(tester, row);
+        final scrollable = find
+            .descendant(
+              of: find.byKey(inventoryPage),
+              matching: find.byType(Scrollable),
+            )
+            .first;
+        final offset = tester
+            .state<ScrollableState>(scrollable)
+            .position
+            .pixels;
+        positions.add(tester.getTopLeft(row).dy + offset);
         expect(
-          find.descendant(
-            of: find.byKey(ValueKey('food-$food')),
-            matching: find.textContaining('소비기한'),
-          ),
+          find.descendant(of: row, matching: find.text(item.$2)),
+          findsOneWidget,
+        );
+        expect(
+          find.descendant(of: row, matching: find.textContaining('소비기한')),
           findsOneWidget,
         );
       }
+      expect(positions[0], lessThan(positions[1]));
+      expect(positions[1], lessThan(positions[2]));
       expect(tester.takeException(), isNull);
       await tester.pumpWidget(const SizedBox());
     },
@@ -366,7 +390,7 @@ void main() {
       await settlePage(tester, inventoryPage);
       await navigate(tester, '홈', homePage);
       await openWeeklyDetails(tester);
-      expect(find.text('750원'), findsNWidgets(2));
+      await expectWeeklyAmount(tester, '750원');
       expect(tester.takeException(), isNull);
       await tester.pumpWidget(const SizedBox());
     },
@@ -413,7 +437,7 @@ void main() {
     expect(tester.takeException(), isNull);
     await navigate(tester, '홈', homePage);
     await openWeeklyDetails(tester);
-    expect(find.text('750원'), findsNWidgets(2));
+    await expectWeeklyAmount(tester, '750원');
     expect(tester.takeException(), isNull);
     await tester.pumpWidget(const SizedBox());
   });
@@ -619,6 +643,7 @@ void main() {
       var attempts = 0;
       await tester.pumpWidget(
         RecareApp(
+          automaticCheckIns: false,
           repositoryFactory: () async => repo,
           preferencesFactory: () async {
             attempts++;
@@ -651,6 +676,13 @@ void main() {
       expect(find.text('설정을 불러오지 못했어요. 다시 시도해주세요.'), findsNothing);
       expect(attempts, 2);
       await tester.tap(find.text('다크'));
+      await waitFor(
+        tester,
+        find.byWidgetPredicate(
+          (widget) =>
+              widget is MaterialApp && widget.themeMode == ThemeMode.dark,
+        ),
+      );
       await settlePage(tester, settingsPage);
       expect(
         tester.widget<MaterialApp>(find.byType(MaterialApp)).themeMode,
