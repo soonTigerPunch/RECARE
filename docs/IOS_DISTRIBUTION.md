@@ -31,7 +31,7 @@ GitHub Actions가 사용 가능한 저장소에서는 **Actions → iOS unsigned
 → Run workflow**로 같은 검증을 실행할 수 있습니다. macOS 실행 시간은 계정의
 Actions 사용량에 포함될 수 있습니다. 업로드되는
 `RECARE-iOS-UNSIGNED-NOT-INSTALLABLE` 아티팩트는 컴파일 확인용이며 배포 파일이 아닙니다.
-이 워크플로는 수동 실행 전까지 빌드 성공을 보장하지 않습니다.
+2026-10-22 [macOS CI 실행](https://github.com/soonTigerPunch/RECARE/actions/runs/39733875158)에서 release 앱의 서명 없는 컴파일과 산출물 업로드를 확인했습니다. 설치 가능한 IPA나 기기 동작 검증을 의미하지 않습니다.
 
 ## 연결된 iPhone에서 개발용 실행
 

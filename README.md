@@ -10,7 +10,7 @@
 
 - **[Android 테스트 APK 다운로드](https://github.com/soonTigerPunch/RECARE/releases/download/v1.1.1-mvp/RECARE-1.1.1-android.apk)** · Android 10 이상
 - [배포 설명과 파일](https://github.com/soonTigerPunch/RECARE/releases/tag/v1.1.1-mvp) · [이 버전 소스 ZIP](https://github.com/soonTigerPunch/RECARE/archive/refs/tags/v1.1.1-mvp.zip)
-- **iPhone:** iOS 15 이상용 프로젝트와 macOS 빌드 자동화를 추가했습니다. **설치 가능한 IPA/TestFlight는 아직 배포하지 않았습니다.** Apple 서명 설정과 기기 검증이 필요합니다. [iPhone 빌드·배포 안내](docs/IOS_DISTRIBUTION.md)
+- **iPhone:** iOS 15 이상용 프로젝트와 macOS 빌드 자동화를 추가했고, 서명 없는 앱 컴파일을 확인했습니다. **설치 가능한 IPA/TestFlight는 아직 배포하지 않았습니다.** Apple 서명 설정과 기기 검증이 필요합니다. [iPhone 빌드·배포 안내](docs/IOS_DISTRIBUTION.md)
 
 > **기존 1.0.3 사용자:** 이번 CI 테스트 APK는 기존 공개 APK와 서명 키가 달라 덮어쓰기 업데이트가 불가능합니다. 앱을 삭제하면 기기 내 기록도 삭제되므로 기록 보존이 필요하면 삭제하지 마세요. 기존 데이터를 유지하는 업데이트 배포에는 이전 서명 키가 필요합니다. 새 테스트 기기에서 설치해 주세요. 이번 APK는 release 모드로 빌드한 테스트 서명 파일이며 Play Store 배포본은 아닙니다.
 
