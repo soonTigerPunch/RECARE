@@ -1,0 +1,36 @@
+name: iOS unsigned compile check
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  compile-ios:
+    runs-on: macos-15
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.47.6'
+          channel: stable
+          cache: true
+      - name: Show toolchain versions
+        run: |
+          flutter --version
+          xcodebuild -version
+      - run: flutter pub get --enforce-lockfile
+      - name: Compile release app without signing
+        run: flutter build ios --release --no-codesign
+      - name: Package compile result (not installable on iPhone)
+        run: |
+          ditto -c -k --sequesterRsrc --keepParent build/ios/iphoneos/Runner.app RECARE-UNSIGNED-NOT-INSTALLABLE.app.zip
+          echo 'This unsigned .app is a compile-check artifact. It cannot be installed on an iPhone. See docs/IOS_DISTRIBUTION.md for signing and distribution.' >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: RECARE-iOS-UNSIGNED-NOT-INSTALLABLE
+          path: RECARE-UNSIGNED-NOT-INSTALLABLE.app.zip
+          if-no-files-found: error
+          retention-days: 7

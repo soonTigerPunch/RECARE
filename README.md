@@ -1,73 +1,75 @@
 # RE:CARE
 
-서버 없이 기기 내 SQLite로 식재료 재고와 폐기 금액을 기록하는 Flutter 앱입니다.
+**냉장고 속 식재료를 잊지 않고, 남은 양과 폐기를 함께 관리하는 앱.**
 
-현재 개발 버전은 **1.1.1+6**입니다. 팀 검토용 [변경 내역](CHANGELOG.md)에서 기능·저장 규칙·검증 범위를 확인할 수 있습니다.
+식재료 등록 → 소비기한 확인 → 먹음·폐기 기록 → 다음 장보기까지 연결합니다. 계정이나 서버 없이 기기 안의 SQLite에 기록을 저장하는 Flutter 앱입니다.
 
-새 식재료 등록에서 이름을 입력하면 대표 이미지와 함께 기본 목록·이전 등록 이력을 제안합니다. 선택하면 이름과 수량·단위를 채우며 소비기한과 실제 구매금액은 새로 입력합니다. 검색은 기기 안에서 처리합니다. 자세한 범위는 [자동완성 안내](docs/AUTOCOMPLETE.md)를 참고하세요.
+## 최신 버전 · 1.1.1+6
 
-홈에서 이번 주 폐기금액과 임박 재료를 확인하고, 목록에서 식재료 상세·수정·삭제로 이동합니다. 먹음·폐기 처리는 전부·절반·1/3·1/4 또는 직접 입력으로 수량을 지정합니다. 구매금액 미입력과 0원을 구분하며 부분 처리 금액을 정확히 계산합니다.
+**이번 업데이트는 소비기한 확인, 여러 재료 등록, 장보기, 실행 취소를 추가한 사용성 업데이트입니다.**
 
-```powershell
-flutter pub get
-flutter analyze
-flutter test
-flutter run
-flutter build apk --debug
-```
+- **[Android 테스트 APK 다운로드](https://github.com/soonTigerPunch/RECARE/releases/download/v1.1.1-mvp/RECARE-1.1.1-android.apk)** · Android 10 이상
+- [배포 설명과 파일](https://github.com/soonTigerPunch/RECARE/releases/tag/v1.1.1-mvp) · [이 버전 소스 ZIP](https://github.com/soonTigerPunch/RECARE/archive/refs/tags/v1.1.1-mvp.zip)
+- **iPhone:** iOS 15 이상용 프로젝트와 macOS 빌드 자동화를 추가했습니다. **설치 가능한 IPA/TestFlight는 아직 배포하지 않았습니다.** Apple 서명 설정과 기기 검증이 필요합니다. [iPhone 빌드·배포 안내](docs/IOS_DISTRIBUTION.md)
 
-처리 기록이 없는 식재료만 삭제할 수 있습니다. 처리 기록이 있는 재료는 이력을 보존하며 남은 수량을 먹음·폐기로 처리합니다. 설정에서 시스템·라이트·다크 모드와 처리 완료 항목 표시 여부를 변경할 수 있으며 재실행 후에도 유지됩니다. 비율은 현재 남은 재고 기준이며 계산 결과를 저장 전에 확인합니다. 공통 디자인 규칙은 `lib/ui/design_system.dart`에서 관리합니다.
+> **기존 1.0.3 사용자:** 이번 클라우드 테스트 APK는 기존 공개 APK와 서명 키가 달라 덮어쓰기 업데이트가 불가능합니다. 앱을 삭제하면 기기 내 기록도 삭제되므로 기록 보존이 필요하면 삭제하지 마세요. 기존 데이터를 유지하는 업데이트 배포에는 이전 서명 키가 필요합니다. 새 테스트 기기에서 설치해 주세요. 이번 APK는 release 모드로 빌드한 테스트 서명 파일이며 Play Store 배포본은 아닙니다.
 
-Android 최소 버전은 Android 10(API 29)입니다. APK는 `build/app/outputs/flutter-apk/app-debug.apk`에 생성됩니다.
+## 무엇이 달라졌나요?
 
-이전 내용·저장 규칙·백업 정보는 [마이그레이션 문서](docs/MIGRATION.md)를 참고하세요.
+| 사용 흐름 | 이전 공개 버전 1.0.3 | 이번 버전 1.1.1 |
+| --- | --- | --- |
+| 소비기한 확인 | 사용자가 목록을 열어 확인 | 3일 전·1일 전·당일 재료를 앱 실행 시 확인 |
+| 여러 임박 재료 | 개별 확인 | **한 팝업에 모아 표시**, 재료별 남은 날짜와 수량 확인 |
+| 소비량 입력 | 상세 화면에서 처리 | 팝업에서 절반·1/3·2/3·전부·먹지 않음 선택 |
+| 실수 복구 | 처리 전 확인 필요 | 빠른 먹음·폐기 후 **8초 동안 실행 취소** |
+| 여러 재료 등록 | 하나씩 등록 | 여러 재료를 모아 한 번에 저장 |
+| 장보기 | 재고와 별도 관리 | 장보기 목록을 저장하고 구매한 재료를 재고로 등록 |
+| 폐기 돌아보기 | 폐기량·금액 기록 | 폐기 사유와 주간 인사이트 추가 |
+| 알림 | 앱에서 직접 확인 | Android에서 원하는 시간의 소비기한 알림 설정 |
 
-## 클라우드 개발과 새 기능
+## 소비기한 확인은 이렇게 동작해요
 
-클라우드 프로젝트는 `/workspace/RECARE-main`입니다. `/workspace/RECARE.code-workspace`를 열면 SDK 경로와 Analyze·Test·Debug APK 작업을 사용할 수 있습니다. 터미널에서는 다음과 같이 환경을 불러옵니다.
+1. 소비기한이 **3일·1일·0일 남은 재료** 중 남은 재고가 있는 재료를 찾습니다.
+2. 알림을 눌러 실행하거나 앱을 직접 열면 **“이 식재료의 소비기한이 임박했어요! 얼마나 소비하셨나요?”**라는 질문을 보여줍니다.
+3. 여러 재료가 있으면 한 팝업에 모아 보여줍니다. 각 재료에 **오늘까지 / 1일 남음 / 3일 남음**, 소비기한 날짜와 남은 수량이 표시됩니다.
+4. 각 재료의 소비량을 선택하면 저장 전 소비량·남은 양을 확인할 수 있습니다. 비율은 **처음 등록한 양이 아닌 현재 남은 양** 기준입니다.
+5. 선택한 항목을 한 번에 저장하거나 **오늘 모두 건너뛰기**를 누릅니다. 저장 시 선택하지 않은 재료도 오늘은 건너뛰며 재고는 바뀌지 않습니다.
 
-```bash
-source /workspace/recare-env.sh
-cd /workspace/RECARE-main
+같은 재료·소비기한에 대한 확인은 하루에 반복하지 않습니다. 다음 확인일에는 다시 물어볼 수 있습니다. 알림은 사용자가 켜는 Android 기기 내 예약 알림이며, 서버 푸시(FCM)는 사용하지 않습니다. OS 권한·절전 정책에 따라 전달 시간이 달라질 수 있습니다. 알림을 꺼도 앱 안 확인 팝업은 사용할 수 있습니다. **iOS 예약 알림은 아직 지원하지 않습니다.**
+
+## 함께 사용할 수 있는 기능
+
+- **빠른 등록:** 식재료 이름 자동완성, 대표 이미지, 이전 등록 이력. 새 소비기한과 실제 구매금액은 직접 입력합니다.
+- **재고 관리:** 검색·임박 필터, 부분 먹음·폐기, 처리 이력. 구매금액 미입력과 0원을 구분합니다.
+- **장보기:** 목록 저장, 중복 정리, 보유 재고 확인, 여러 구매 항목의 일괄 재고 등록.
+- **주간 돌아보기:** 폐기금액·사유·자주 버린 재료를 확인해 다음 구매량을 조절합니다.
+- **화면 설정:** 시스템·라이트·다크 모드, 처리 완료 항목 표시 설정을 유지합니다.
+
+데이터는 해당 기기에 저장됩니다. 계정 동기화나 자동 클라우드 백업은 제공하지 않으며 앱 삭제 시 기록이 사라집니다. 처리 기록이 있는 재료는 이력을 보존합니다. 자세한 동작은 [사용성 기능 안내](docs/EVERYDAY_USABILITY.md)를 참고하세요.
+
+## 개발과 검증
+
+개발 기준: **Flutter 3.47.6 / Dart 3.13.5**, Android SDK 36, JDK 21. Android 최소 API 29, iOS 프로젝트 최소 15.0입니다.
+
+```sh
+flutter pub get --enforce-lockfile
 flutter analyze --no-pub
 flutter test --no-pub
-flutter build apk --debug --no-pub
+flutter build apk --release --no-pub
 ```
 
-현재 작업 브랜치 `feature/everyday-usability`에는 빠른 먹음·폐기와 실행 취소, 여러 재료 등록, 장보기 구매 등록, Android 일일 소비기한 알림, 폐기 사유·주간 인사이트를 추가했습니다. 사용법과 데이터 보존 규칙은 [일상 사용성 기능](docs/EVERYDAY_USABILITY.md)에 정리했습니다. 팀 검토용 작업 브랜치이며, 아래 공개 다운로드는 이전 배포본입니다.
+APK 출력: `build/app/outputs/flutter-apk/app-release.apk`. 현재 Android release 설정도 테스트용 debug 키로 서명합니다. 정식 배포에는 별도 서명 설정이 필요합니다.
 
-## 팀원 다운로드
+클라우드 작업 공간에서는 먼저 `source /workspace/recare-env.sh`로 도구 경로를 불러옵니다. 프로젝트는 `/workspace/RECARE-main`, 편집기 설정은 `/workspace/RECARE.code-workspace`입니다. PC 바탕화면 폴더와 자동 동기화되는 경로는 아닙니다.
 
-공개 배포 소스와 테스트 APK는 **1.0.3+4**입니다. 식재료 자동완성과 최신 안내 문구가 포함되어 있습니다.
+검증 범위: Flutter 테스트 **122건**, 정적 검사, Android APK 빌드, Kotlin 알림 정책 14개와 실제 알림 SQL fixture 6개. 실제 기기의 알림 전달·권한·재부팅과 iPhone 설치·동작은 별도 QA 대상입니다.
 
-- [테스트 APK 다운로드](https://github.com/soonTigerPunch/RECARE/releases/tag/v1.0.3-mvp)
-- [소스 ZIP 다운로드](https://github.com/soonTigerPunch/RECARE/archive/refs/heads/main.zip)
+## 팀 문서
 
-APK는 Android 10 이상에서 설치할 수 있는 테스트 빌드입니다. 기존 RE:CARE가 설치되어 있다면 업데이트로 설치하세요. 앱을 삭제하면 기기 내 기록도 삭제됩니다.
+- [변경 내역](CHANGELOG.md): 버전별 변경 사항
+- [일상 사용성 기능](docs/EVERYDAY_USABILITY.md): 사용 흐름과 저장 규칙
+- [데이터 이전 안내](docs/MIGRATION.md): 기존 데이터와 스키마 변경
+- [iPhone 빌드·배포](docs/IOS_DISTRIBUTION.md): Apple 서명, TestFlight, Ad Hoc
+- [자동완성 안내](docs/AUTOCOMPLETE.md) · [개발 이력](docs/DEVELOPMENT_HISTORY.md)
 
-개발 환경은 Flutter 3.47.6 / Dart 3.13.5입니다. 저장소를 받은 뒤 `flutter pub get`, `flutter test`, `flutter run` 순서로 실행합니다. Android SDK와 사용할 기기 설정은 각 개발자의 환경에 맞게 지정합니다.
-
-## 검증
-
-- 2026-10-22 개발 버전 1.1.1+6: 확인 팝업 통합, 재료별 남은 기한 표시, 전체 테스트 **122건 통과**, 정적 검사·APK 빌드 성공.
-
-- 2026-10-22 개발 버전 1.1.0+5: 전체 테스트 **120건 통과**, 정적 검사 문제 없음, Android debug APK 빌드 성공. 순차 소비기한 팝업·복귀·날짜 변경·DB v3 이전 포함.
-- Kotlin 알림 정책 14개, 실제 알림 SQL fixture 6개 검증 통과. 실기기 알림 전달·권한·재부팅은 QA 확인 대상.
-
-- 2026-10-21 클라우드 작업본: 전체 Flutter 테스트 **102건 통과**, 정적 검사 문제 없음, Android debug APK 빌드 성공.
-- 알림 시간·일일 중복 방지 Kotlin 정책 검증 9개 통과. 실제 기기의 알림 전달·권한 창·재부팅 동작은 미확인.
-- 아래 항목은 이전 공개 버전의 검증 기록입니다.
-
-- 2026-10-17: 자동완성·계산·저장·수정·삭제·수량 선택·설정·화면 흐름 테스트 67건 통과
-- `flutter analyze --no-pub` 문제 없음
-- 별도 화면 렌더링 테스트 통과, 자동완성 3개를 포함한 13개 캡처 확인
-- 1.0.3+4 Android debug APK 빌드 성공
-- 이번 버전의 실기기 설치·조작 검사는 미실시. 이전 1.0.2 버전의 연결 기기 업데이트 설치·시작 확인과 구분
-
-[자동완성 제안](docs/screenshots/autocomplete-suggestions.png) · [선택 후 등록](docs/screenshots/autocomplete-selected.png) · [이전 등록 이력](docs/screenshots/autocomplete-history.png)
-
-[홈 화면](docs/screenshots/home.png) · [식재료 목록](docs/screenshots/fridge.png) · [수량 선택](docs/screenshots/processing-dialog.png)
-
-## 개발 변경 기록
-
-Flutter 전환, 기능·디자인·문구 변경, 검증·배포 및 후속 합의는 [개발 변경 기록](docs/DEVELOPMENT_HISTORY.md)에 정리했습니다.
+기존 `docs/screenshots/` 이미지는 1.0.3 시점의 화면이며 이번 통합 팝업을 보여주는 자료는 아닙니다.
