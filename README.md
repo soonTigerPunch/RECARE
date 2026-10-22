@@ -55,8 +55,10 @@
 flutter pub get --enforce-lockfile
 flutter analyze --no-pub
 flutter test --no-pub
-flutter build apk --release --no-pub
+flutter build apk --release
 ```
+
+release 빌드는 `--no-pub` 없이 실행해 개발용 플러그인 등록을 갱신합니다.
 
 APK 출력: `build/app/outputs/flutter-apk/app-release.apk`. 현재 Android release 설정도 테스트용 debug 키로 서명합니다. 정식 배포에는 별도 서명 설정이 필요합니다.
 
