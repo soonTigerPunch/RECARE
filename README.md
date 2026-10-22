@@ -12,7 +12,7 @@
 - [배포 설명과 파일](https://github.com/soonTigerPunch/RECARE/releases/tag/v1.1.1-mvp) · [이 버전 소스 ZIP](https://github.com/soonTigerPunch/RECARE/archive/refs/tags/v1.1.1-mvp.zip)
 - **iPhone:** iOS 15 이상용 프로젝트와 macOS 빌드 자동화를 추가했습니다. **설치 가능한 IPA/TestFlight는 아직 배포하지 않았습니다.** Apple 서명 설정과 기기 검증이 필요합니다. [iPhone 빌드·배포 안내](docs/IOS_DISTRIBUTION.md)
 
-> **기존 1.0.3 사용자:** 이번 클라우드 테스트 APK는 기존 공개 APK와 서명 키가 달라 덮어쓰기 업데이트가 불가능합니다. 앱을 삭제하면 기기 내 기록도 삭제되므로 기록 보존이 필요하면 삭제하지 마세요. 기존 데이터를 유지하는 업데이트 배포에는 이전 서명 키가 필요합니다. 새 테스트 기기에서 설치해 주세요. 이번 APK는 release 모드로 빌드한 테스트 서명 파일이며 Play Store 배포본은 아닙니다.
+> **기존 1.0.3 사용자:** 이번 CI 테스트 APK는 기존 공개 APK와 서명 키가 달라 덮어쓰기 업데이트가 불가능합니다. 앱을 삭제하면 기기 내 기록도 삭제되므로 기록 보존이 필요하면 삭제하지 마세요. 기존 데이터를 유지하는 업데이트 배포에는 이전 서명 키가 필요합니다. 새 테스트 기기에서 설치해 주세요. 이번 APK는 release 모드로 빌드한 테스트 서명 파일이며 Play Store 배포본은 아닙니다.
 
 ## 무엇이 달라졌나요?
 
@@ -60,7 +60,7 @@ flutter build apk --release
 
 release 빌드는 `--no-pub` 없이 실행해 개발용 플러그인 등록을 갱신합니다.
 
-APK 출력: `build/app/outputs/flutter-apk/app-release.apk`. 현재 Android release 설정도 테스트용 debug 키로 서명합니다. 정식 배포에는 별도 서명 설정이 필요합니다.
+APK 출력: `build/app/outputs/flutter-apk/app-release.apk`. 현재 Android release 설정도 테스트용 debug 키로 서명합니다. CI 키는 실행 환경에 따라 바뀌므로 이 테스트 배포 간 덮어쓰기 호환도 보장하지 않습니다. 정식 배포에는 별도 서명 설정이 필요합니다.
 
 클라우드 작업 공간에서는 먼저 `source /workspace/recare-env.sh`로 도구 경로를 불러옵니다. 프로젝트는 `/workspace/RECARE-main`, 편집기 설정은 `/workspace/RECARE.code-workspace`입니다. PC 바탕화면 폴더와 자동 동기화되는 경로는 아닙니다.
 
