@@ -108,7 +108,42 @@ class InventoryRepository {
     required DateTime today,
     required CheckInAnswer answer,
     required String requestId,
+  }) => _db.transaction(
+    (txn) => _answerExpiryCheckIn(
+      txn,
+      food: food,
+      today: today,
+      answer: answer,
+      requestId: requestId,
+    ),
+  );
+
+  Future<void> answerExpiryCheckIns({
+    required List<({Food food, CheckInAnswer answer, String requestId})>
+    answers,
+    required DateTime today,
   }) => _db.transaction((txn) async {
+    require(answers.isNotEmpty, '확인할 재료를 선택해주세요.');
+    final ids = <String>{};
+    for (final item in answers) {
+      require(ids.add(item.food.id), '중복된 재료를 확인해주세요.');
+      await _answerExpiryCheckIn(
+        txn,
+        food: item.food,
+        today: today,
+        answer: item.answer,
+        requestId: item.requestId,
+      );
+    }
+  });
+
+  Future<bool> _answerExpiryCheckIn(
+    DatabaseExecutor txn, {
+    required Food food,
+    required DateTime today,
+    required CheckInAnswer answer,
+    required String requestId,
+  }) async {
     require(requestId.trim().isNotEmpty, '답변 요청을 확인해주세요.');
     final day = dateText(civilDate(today));
     final expiry = dateText(food.expiry);
@@ -188,7 +223,7 @@ class InventoryRepository {
       'request_id': requestId,
     });
     return true;
-  });
+  }
 
   Future<List<Food>> recentFoods({int limit = 200}) async {
     require(limit > 0 && limit <= 200, '이전 등록 조회 범위를 확인해주세요.');

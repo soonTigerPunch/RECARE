@@ -251,4 +251,56 @@ void main() {
     expect(await db.getVersion(), 3);
     expect(await db.query('expiry_check_ins'), isEmpty);
   });
+  test(
+    'bulk check-in rolls back earlier consumption when a later item is stale',
+    () async {
+      final first = food('first');
+      final second = food('second');
+      await repo.save(first);
+      await repo.save(second);
+      await repo.process(
+        foodId: second.id,
+        kind: ActionKind.eat,
+        amount: 1000,
+        unit: second.unit,
+        date: today,
+        requestId: 'other',
+        today: today,
+      );
+      await expectLater(
+        repo.answerExpiryCheckIns(
+          today: today,
+          answers: [
+            (food: first, answer: CheckInAnswer.half, requestId: 'bulk-first'),
+            (
+              food: second,
+              answer: CheckInAnswer.half,
+              requestId: 'bulk-second',
+            ),
+          ],
+        ),
+        throwsArgumentError,
+      );
+      final snapshot = await repo.load();
+      expect(
+        snapshot.foods.firstWhere((f) => f.id == first.id).remaining,
+        first.total,
+      );
+      expect(snapshot.records.map((r) => r.id), ['other']);
+      expect((await repo.pendingExpiryCheckIns(today)).length, 2);
+      final latest = snapshot.foods.firstWhere((f) => f.id == second.id);
+      await repo.answerExpiryCheckIns(
+        today: today,
+        answers: [
+          (food: first, answer: CheckInAnswer.half, requestId: 'bulk-first'),
+          (food: latest, answer: CheckInAnswer.skip, requestId: 'bulk-second'),
+        ],
+      );
+      expect(await repo.pendingExpiryCheckIns(today), isEmpty);
+      expect(
+        (await repo.load()).foods.firstWhere((f) => f.id == first.id).remaining,
+        1500,
+      );
+    },
+  );
 }
