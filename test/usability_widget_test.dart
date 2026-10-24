@@ -11,7 +11,7 @@ import 'package:recare/data/preferences.dart';
 import 'package:recare/domain/inventory.dart';
 import 'package:recare/main.dart';
 
-import 'widget_test.dart' show settlePage, reveal;
+import 'widget_test.dart' show settlePage, reveal, waitFor;
 
 void main() {
   sqfliteFfiInit();
@@ -216,6 +216,8 @@ void main() {
     await settlePage(tester, const ValueKey('inventory-page'));
     await tester.tap(find.text('실행 취소'));
     await settlePage(tester, const ValueKey('inventory-page'));
+    // The page already exists while the async undo and parent refresh run.
+    await waitFor(tester, find.text('처리를 되돌렸어요. 재고와 금액을 복원했어요.'));
     expect((await tester.runAsync(repo.load))!.foods.single.remaining, 1000000);
     expect(find.text('1000 ml'), findsOneWidget);
     await tester.pumpWidget(const SizedBox());
