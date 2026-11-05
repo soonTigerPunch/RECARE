@@ -17,6 +17,9 @@ class InventoryRepository {
   InventoryRepository._(this._db);
   final Database _db;
 
+  /// Shared connection for transactional local recipe operations.
+  Database get database => _db;
+
   static Future<InventoryRepository> open({
     String name = 'recare.db',
     DatabaseFactory? factory,
@@ -27,7 +30,7 @@ class InventoryRepository {
     final db = await driver.openDatabase(
       path,
       options: OpenDatabaseOptions(
-        version: 3,
+        version: 4,
         onConfigure: (db) async {
           await db.execute('PRAGMA foreign_keys = ON');
         },
@@ -50,9 +53,10 @@ class InventoryRepository {
           await db.execute('CREATE INDEX records_date ON records(date, kind)');
           await _createShopping(db);
           await _createExpiryCheckIns(db);
+          await _createRecipes(db);
         },
         onUpgrade: (db, oldVersion, newVersion) async {
-          if (oldVersion < 1 || newVersion > 3) {
+          if (oldVersion < 1 || newVersion > 4) {
             throw StateError('지원하지 않는 저장 버전입니다. 데이터를 유지하고 업데이트를 확인해주세요.');
           }
           if (oldVersion < 2) {
@@ -65,6 +69,7 @@ class InventoryRepository {
             await _createShopping(db);
           }
           if (oldVersion < 3) await _createExpiryCheckIns(db);
+          if (oldVersion < 4) await _createRecipes(db);
         },
         onDowngrade: (db, oldVersion, newVersion) =>
             throw StateError('저장 버전이 더 높아요. 최신 앱을 사용해주세요.'),
@@ -78,6 +83,157 @@ class InventoryRepository {
       id TEXT PRIMARY KEY, name TEXT NOT NULL, unit TEXT NOT NULL,
       amount INTEGER NOT NULL CHECK(amount > 0), created TEXT NOT NULL,
       normalized_key TEXT NOT NULL UNIQUE)''');
+
+  static Future<void> _createRecipes(DatabaseExecutor db) async {
+    await db.execute(
+      'CREATE TABLE recipe_values (key TEXT PRIMARY KEY, value TEXT NOT NULL)',
+    );
+    await db.execute(
+      'CREATE TABLE recipe_recent (request_id TEXT PRIMARY KEY, result_json TEXT NOT NULL, generated_at TEXT NOT NULL)',
+    );
+    await db.execute(
+      'CREATE TABLE recipe_favorites (recipe_id TEXT PRIMARY KEY, recipe_json TEXT NOT NULL, saved_at TEXT NOT NULL)',
+    );
+    await db.execute('''CREATE TABLE recipe_cooking (
+      id TEXT PRIMARY KEY, recipe_id TEXT NOT NULL, recipe_json TEXT NOT NULL,
+      state TEXT NOT NULL CHECK(state IN ('draft','completed','undone')),
+      day TEXT NOT NULL, usages_json TEXT NOT NULL,
+      record_count INTEGER NOT NULL DEFAULT 0 CHECK(record_count >= 0))''');
+    await db.execute(
+      'CREATE INDEX recipe_cooking_recipe ON recipe_cooking(recipe_id)',
+    );
+    await db.execute('''CREATE TABLE recipe_cooking_records (
+      operation_id TEXT NOT NULL REFERENCES recipe_cooking(id),
+      record_id TEXT NOT NULL UNIQUE REFERENCES records(id),
+      PRIMARY KEY(operation_id, record_id))''');
+    await db.execute('''CREATE TABLE recipe_shopping_batches (
+      request_id TEXT PRIMARY KEY, payload_json TEXT NOT NULL,
+      added INTEGER NOT NULL, existing_count INTEGER NOT NULL)''');
+  }
+
+  /// Revalidates every expected snapshot before a recipe transaction writes anything.
+  Future<void> validateRecipeFoods(
+    DatabaseExecutor txn,
+    List<({Food food, int amount})> usages,
+    DateTime today,
+  ) async {
+    final ids = <String>{};
+    for (final usage in usages) {
+      final expected = usage.food;
+      Food.fromRow(expected.toRow());
+      require(ids.add(expected.id), '중복된 재료를 확인해주세요.');
+      final rows = await txn.query(
+        'foods',
+        where: 'id = ?',
+        whereArgs: [expected.id],
+      );
+      require(rows.isNotEmpty, '재고가 변경됐어요. 사용량을 다시 확인해주세요.');
+      final current = Food.fromRow(rows.single);
+      final expectedRow = expected.toRow(), currentRow = current.toRow();
+      require(
+        expectedRow.keys.every((key) => expectedRow[key] == currentRow[key]),
+        '재고가 변경됐어요. 사용량을 다시 확인해주세요.',
+      );
+      require(
+        !current.expiry.isBefore(civilDate(today)) &&
+            usage.amount >= 0 &&
+            usage.amount <= current.remaining,
+        '소비기한과 남은 사용량을 확인해주세요.',
+      );
+    }
+  }
+
+  /// Caller owns the transaction so operation state, costs and inventory commit together.
+  Future<List<FoodRecord>> processRecipeFoods(
+    DatabaseExecutor txn,
+    List<({Food food, int amount, String requestId})> usages,
+    DateTime today,
+  ) async {
+    await validateRecipeFoods(
+      txn,
+      usages.map((u) => (food: u.food, amount: u.amount)).toList(),
+      today,
+    );
+    require(usages.any((u) => u.amount > 0), '사용한 재료를 하나 이상 입력해주세요.');
+    final records = <FoodRecord>[];
+    for (final usage in usages.where((u) => u.amount > 0)) {
+      final result = processFood(
+        usage.food,
+        ActionKind.eat,
+        usage.amount,
+        usage.food.unit,
+        today,
+        usage.requestId,
+        today: today,
+      );
+      await txn.insert('records', result.record.toRow());
+      final changed = await txn.update(
+        'foods',
+        {'remaining': result.food.remaining},
+        where: 'id = ?',
+        whereArgs: [usage.food.id],
+      );
+      if (changed != 1) throw StateError('재고 저장에 실패했어요.');
+      records.add(result.record);
+    }
+    return records;
+  }
+
+  /// Latest-record restrictions are checked for every item before any restoration.
+  Future<bool> undoRecipeRecords(
+    DatabaseExecutor txn,
+    List<String> recordIds,
+  ) async {
+    if (recordIds.isEmpty) return false;
+    final restores = <({Food food, FoodRecord record})>[];
+    for (final id in recordIds) {
+      final rows = await txn.query(
+        'records',
+        where: 'id = ? AND voided = 0',
+        whereArgs: [id],
+      );
+      if (rows.isEmpty) return false;
+      final record = FoodRecord.fromRow(rows.single);
+      final latest = await txn.query(
+        'records',
+        columns: ['id'],
+        where: 'food_id = ? AND voided = 0',
+        whereArgs: [record.foodId],
+        orderBy: 'rowid DESC',
+        limit: 1,
+      );
+      if (latest.isEmpty || latest.single['id'] != id) return false;
+      final foods = await txn.query(
+        'foods',
+        where: 'id = ?',
+        whereArgs: [record.foodId],
+      );
+      if (foods.isEmpty) return false;
+      final food = Food.fromRow(foods.single);
+      if (food.unit.family != record.unit.family ||
+          food.remaining + record.amount > food.total) {
+        return false;
+      }
+      restores.add((food: food, record: record));
+    }
+    for (final restore in restores) {
+      final changed = await txn.update(
+        'foods',
+        {'remaining': restore.food.remaining + restore.record.amount},
+        where: 'id = ?',
+        whereArgs: [restore.food.id],
+      );
+      if (changed != 1) throw StateError('재고 복원에 실패했어요.');
+      final voided = await txn.update(
+        'records',
+        {'voided': 1},
+        where: 'id = ? AND voided = 0',
+        whereArgs: [restore.record.id],
+      );
+      if (voided != 1) throw StateError('처리 기록 복원에 실패했어요.');
+    }
+    return true;
+  }
 
   static Future<void> _createExpiryCheckIns(DatabaseExecutor db) =>
       db.execute('''
@@ -337,6 +493,14 @@ class InventoryRepository {
   )).isNotEmpty;
 
   Future<bool> undoProcess(String recordId) => _db.transaction((txn) async {
+    final recipeLinks = await txn.query(
+      'recipe_cooking_records',
+      columns: ['operation_id'],
+      where: 'record_id = ?',
+      whereArgs: [recordId],
+      limit: 1,
+    );
+    if (recipeLinks.isNotEmpty) return false;
     final rows = await txn.query(
       'records',
       where: 'id = ? AND voided = 0',

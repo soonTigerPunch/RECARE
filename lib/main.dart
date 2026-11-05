@@ -6,11 +6,14 @@ import 'package:uuid/uuid.dart';
 
 import 'data/inventory_repository.dart';
 import 'data/preferences.dart';
+import 'data/recipe_repository.dart';
 import 'domain/inventory.dart';
 import 'domain/portions.dart';
 import 'domain/food_catalog.dart';
 import 'domain/shopping.dart';
 import 'services/reminder_service.dart';
+import 'services/recipe_client.dart';
+import 'ui/recipes/recipe_pages.dart';
 import 'ui/reminder_settings.dart';
 import 'ui/expiry_check_in_dialog.dart';
 import 'ui/batch_registration.dart';
@@ -36,12 +39,14 @@ class RecareApp extends StatefulWidget {
     this.repositoryFactory,
     this.preferencesFactory,
     this.reminderService,
+    this.recipeClient,
     this.automaticCheckIns = true,
     this.clock,
   });
   final RepositoryFactory? repositoryFactory;
   final PreferencesFactory? preferencesFactory;
   final ReminderService? reminderService;
+  final RecipeClient? recipeClient;
   final bool automaticCheckIns;
   final Clock? clock;
   @override
@@ -130,6 +135,7 @@ class _RecareAppState extends State<RecareApp> {
     },
     home: InventoryHome(
       reminderService: widget.reminderService,
+      recipeClient: widget.recipeClient,
       automaticCheckIns: widget.automaticCheckIns,
       routeObserver: _routes,
       repositoryFactory: widget.repositoryFactory ?? InventoryRepository.open,
@@ -233,6 +239,7 @@ class InventoryHome extends StatefulWidget {
     required this.onPreferencesChanged,
     required this.onPreferencesRetry,
     this.reminderService,
+    this.recipeClient,
     this.automaticCheckIns = true,
     this.routeObserver,
   });
@@ -244,6 +251,7 @@ class InventoryHome extends StatefulWidget {
   final Future<void> Function(AppPreferences) onPreferencesChanged;
   final VoidCallback onPreferencesRetry;
   final ReminderService? reminderService;
+  final RecipeClient? recipeClient;
   final bool automaticCheckIns;
   final RouteObserver<ModalRoute<dynamic>>? routeObserver;
   @override
@@ -273,6 +281,9 @@ class _InventoryHomeState extends State<InventoryHome>
   }
 
   InventoryRepository? _repo;
+  RecipeRepository? _recipes;
+  RecipeClient? _recipeClient;
+  bool _hasRecentRecipes = false;
   InventorySnapshot _snapshot = InventorySnapshot([], []);
   bool _loading = true, _failed = false;
   int _tab = 0;
@@ -338,6 +349,7 @@ class _InventoryHomeState extends State<InventoryHome>
     unawaited(_reminderOpens?.cancel());
     if (widget.reminderService == null) _reminders.dispose();
     WidgetsBinding.instance.removeObserver(this);
+    if (widget.recipeClient == null) _recipeClient?.close();
     if (_repo != null) unawaited(_repo!.close());
     super.dispose();
   }
@@ -356,10 +368,20 @@ class _InventoryHomeState extends State<InventoryHome>
         return;
       }
       _repo = repo;
+      final recipes = _recipes ??= RecipeRepository(repo);
+      _recipeClient ??=
+          widget.recipeClient ?? SupabaseRecipeClient(repository: recipes);
       final snapshot = await repo.load();
+      var hasRecent = false;
+      try {
+        hasRecent = (await recipes.loadRecent()).isNotEmpty;
+      } catch (_) {
+        // Optional recommendation history must not block offline inventory.
+      }
       if (mounted) {
         setState(() {
           _snapshot = snapshot;
+          _hasRecentRecipes = hasRecent;
           _loading = false;
         });
         unawaited(_maybeShowCheckIns());
@@ -453,6 +475,23 @@ class _InventoryHomeState extends State<InventoryHome>
     await Navigator.of(context).push<void>(
       MaterialPageRoute(
         builder: (_) => ShoppingPage(repository: _repo!, clock: widget.clock),
+      ),
+    );
+    if (mounted) await _refresh();
+  }
+
+  Future<void> _openRecipes([String initialPage = 'input']) async {
+    if (_repo == null || _recipes == null || _recipeClient == null) return;
+    await Navigator.of(context).push<void>(
+      MaterialPageRoute(
+        builder: (_) => RecipeHubPage(
+          inventory: _repo!,
+          repository: _recipes!,
+          client: _recipeClient!,
+          clock: widget.clock,
+          initialPage: initialPage,
+          onRegister: _add,
+        ),
       ),
     );
     if (mounted) await _refresh();
@@ -614,6 +653,12 @@ class _InventoryHomeState extends State<InventoryHome>
                             onOpen: _open,
                             onWeek: _showWeek,
                             onList: () => setState(() => _tab = 1),
+                            onRecipes: () => _openRecipes(),
+                            onRecipeFavorites: () => _openRecipes('favorites'),
+                            onRecentRecipes: _hasRecentRecipes
+                                ? () => _openRecipes('recent')
+                                : null,
+                            onRegister: _add,
                           )
                         : ListView.builder(
                             key: const ValueKey('inventory-page'),
@@ -783,6 +828,10 @@ class HomeOverview extends StatelessWidget {
     required this.onOpen,
     required this.onWeek,
     required this.onList,
+    this.onRecipes,
+    this.onRecipeFavorites,
+    this.onRecentRecipes,
+    this.onRegister,
   });
   final WeekSummary week;
   final List<Food> urgent;
@@ -790,6 +839,7 @@ class HomeOverview extends StatelessWidget {
   final DateTime today;
   final ValueChanged<Food> onOpen;
   final VoidCallback onWeek, onList;
+  final VoidCallback? onRecipes, onRecipeFavorites, onRecentRecipes, onRegister;
 
   @override
   Widget build(BuildContext context) => ListView(
@@ -829,6 +879,13 @@ class HomeOverview extends StatelessWidget {
             ),
           ),
           TextButton(onPressed: onList, child: const Text('전체 목록')),
+          if (onRecipes != null)
+            IconButton(
+              key: const ValueKey('home-recipes'),
+              onPressed: onRecipes,
+              tooltip: '요리 찾기',
+              icon: const Icon(Icons.restaurant_menu),
+            ),
         ],
       ),
       if (urgent.isNotEmpty)
@@ -857,6 +914,50 @@ class HomeOverview extends StatelessWidget {
             style: Theme.of(context).textTheme.bodySmall,
           ),
         ),
+      if (onRecipes != null) ...[
+        const SizedBox(height: Space.lg),
+        Card(
+          child: Padding(
+            padding: const EdgeInsets.all(Space.lg),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  '냉장고 재료로 요리 찾기',
+                  style: Theme.of(context).textTheme.titleMedium,
+                ),
+                const SizedBox(height: Space.sm),
+                Text(
+                  hasStock
+                      ? '남은 재료를 활용할 AI 레시피를 찾아보세요.'
+                      : '식재료를 등록하면 요리를 추천해드려요.',
+                ),
+                const SizedBox(height: Space.sm),
+                FilledButton.tonal(
+                  onPressed: hasStock ? onRecipes : onRegister,
+                  child: Text(hasStock ? '레시피 추천받기' : '식재료 등록하기'),
+                ),
+                Wrap(
+                  spacing: Space.sm,
+                  children: [
+                    if (onRecentRecipes != null)
+                      TextButton(
+                        key: const ValueKey('home-recipe-recent'),
+                        onPressed: onRecentRecipes,
+                        child: const Text('최근 추천'),
+                      ),
+                    TextButton(
+                      key: const ValueKey('home-recipe-favorites'),
+                      onPressed: onRecipeFavorites,
+                      child: const Text('즐겨찾기'),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ),
+      ],
     ],
   );
 }

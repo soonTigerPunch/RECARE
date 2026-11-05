@@ -1,0 +1,9 @@
+{
+  "name": "recare-recipe-server-tests",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --experimental-strip-types --test --test-isolation=none *.test.ts"
+  },
+  "engines": {"node": ">=24"}
+}

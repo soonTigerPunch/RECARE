@@ -484,6 +484,14 @@ void main() {
       expect(weeklyWaste(snapshot.records, today).knownTotal, 1125);
       await tester.tap(find.byType(BackButton));
       await settlePage(tester, homePage);
+      // Returning preserves the home scroll position after opening a food.
+      // The recipe card makes the home scrollable; reveal the summary first.
+      final homeScroll = find.descendant(
+        of: find.byKey(homePage),
+        matching: find.byType(Scrollable),
+      );
+      tester.state<ScrollableState>(homeScroll.first).position.jumpTo(0);
+      await tester.pump();
       expect(find.text('1,125원'), findsOneWidget);
       expect(find.text('폐기 2건'), findsOneWidget);
       expect(tester.takeException(), isNull);

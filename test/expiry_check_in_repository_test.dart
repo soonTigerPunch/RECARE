@@ -227,6 +227,16 @@ void main() {
     await repo.close();
     final db = await databaseFactoryFfi.openDatabase(path);
     await db.execute('DROP TABLE IF EXISTS expiry_check_ins');
+    for (final table in [
+      'recipe_cooking_records',
+      'recipe_cooking',
+      'recipe_values',
+      'recipe_recent',
+      'recipe_favorites',
+      'recipe_shopping_batches',
+    ]) {
+      await db.execute('DROP TABLE $table');
+    }
     await db.setVersion(2);
     await db.close();
     repo = await InventoryRepository.open(
@@ -238,7 +248,7 @@ void main() {
     expect((await repo.loadShoppingList()).single.id, 's');
     expect(await answer(value, CheckInAnswer.none, 'none'), isTrue);
   });
-  test('v1 fixture upgrades directly to v3 and retains old data', () async {
+  test('v1 fixture upgrades directly to v4 and retains old data', () async {
     await repo.close();
     await File('test/fixtures/kotlin_v1.db').copy(path);
     repo = await InventoryRepository.open(
@@ -248,7 +258,7 @@ void main() {
     expect((await repo.load()).foods.length, 3);
     expect((await repo.load()).records.single.cost, 750);
     final db = await databaseFactoryFfi.openDatabase(path);
-    expect(await db.getVersion(), 3);
+    expect(await db.getVersion(), 4);
     expect(await db.query('expiry_check_ins'), isEmpty);
   });
   test(

@@ -1,0 +1,6 @@
+project_id = "recare-local"
+
+[functions.recipe-recommendations]
+# The function verifies each anonymous JWT with Auth /user. This supports the
+# current publishable key format; the service-role key remains server-only.
+verify_jwt = false
