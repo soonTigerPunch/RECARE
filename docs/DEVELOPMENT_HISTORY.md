@@ -69,7 +69,7 @@ Activity 의존성과 Compose 설정, ComponentActivity·setContent·enableEdgeT
 
 ### 프로젝트와 실행 환경
 
-현재 개발 대상은 C:/Users/soonh/AndroidStudioProjects/RECARE_flutter다. 기존 Kotlin 프로젝트 RECARE는 비교·백업 대상으로 유지한다. Flutter 대상 폴더에 있던 Java 기본 프로젝트는 migration_backup/java_project에 보존했다.
+현재 개발 대상은 Flutter 프로젝트 폴더다. 기존 Kotlin 프로젝트 RECARE는 비교·백업 대상으로 유지한다. Flutter 대상 폴더에 있던 Java 기본 프로젝트는 migration_backup/java_project에 보존했다.
 
 | 항목 | Flutter 프로젝트 기준 |
 | --- | --- |
@@ -325,7 +325,7 @@ GitHub 공개는 소스와 APK 공유 방식의 변경이다. 앱 내부에 서�
 
 ### 자료 위치
 
-현재 프로젝트는 C:/Users/soonh/AndroidStudioProjects/RECARE_flutter, 기존 프로젝트는 C:/Users/soonh/AndroidStudioProjects/RECARE다. 공유용 자료는 C:/RECARE_src/deliverables에 모았다. 최신 문구 PDF 원본은 사용자 Downloads 폴더에 있으며 원본 문서는 수정하지 않았다.
+현재 프로젝트는 Flutter 프로젝트 폴더, 기존 프로젝트는 기존 Kotlin 프로젝트 폴더다. 공유용 자료는 공유용 산출물 폴더에 모았다. 최신 문구 PDF 원본은 사용자 Downloads 폴더에 있으며 원본 문서는 수정하지 않았다.
 
 핵심 화면 자료는 RECARE_core_screenshots_1.0.2.zip, 이번 개발 기록은 RECARE_development_history_2026-10-17.pdf와 같은 이름의 Markdown 파일로 제공한다. 프로젝트에서 갱신할 기록은 docs/DEVELOPMENT_HISTORY.md다.
 

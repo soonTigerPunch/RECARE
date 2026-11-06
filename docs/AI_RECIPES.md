@@ -47,6 +47,8 @@ Android/iOS CI 빌드도 같은 파일을 사용합니다. 서버는 현재 비�
 운영 서버 URL이 설정되지 않으면 새 추천을 사용할 수 없다는 안내가 나오고,
 기존 로컬 기능은 계속 동작합니다. 실제 추천 대신 예제 데이터를 반환하지 않습니다.
 
+`config/recipe.public.json`의 프로젝트 URL과 publishable key는 앱에 포함되는 공개 정보입니다. 이 값은 인증이나 남용 방지를 대신하지 않습니다. 서버 전용 비밀 키·개인 액세스 토큰·Android 서명키 및 암호는 저장소나 릴리스 파일에 넣지 않습니다.
+
 OpenAI 키는 Supabase Edge Function의 시크릿에만 등록합니다. 이 개발 환경의
 `RECARE_KEY`가 운영 서버에 자동 복사되지는 않습니다. 키 값을 읽어 Git이나
 Flutter `--dart-define`, `.env` 번들, 앱 설정에 넣지 마세요. Supabase service-role

@@ -6,9 +6,9 @@
 필수 인증서 SHA-256:
 `716d350e47cffbd8d0e9d6e790c147f6d05fbd305c81cc0dc2ffeccb4c552991`
 
-원본은 사용자 PC의 `C:\Users\soonh\.android\debug.keystore`다.
+업데이트용 원본 서명키는 소유자가 비공개로 관리한다.
 파일명은 같아도 다른 PC의 debug.keystore는 다른 키다. 키를 생성하거나 덮어쓰지 않는다.
-클라우드의 /workspace/.android/debug.keystore는 인증서가 달라 사용할 수 없다.
+빌드 환경에 기본으로 있는 키는 인증서가 다를 수 있으므로 지문을 확인한다.
 
 원본을 안전한 비공개 경로로 전달받은 뒤, Git에서 제외된 android/key.properties에 다음 항목을 설정한다.
 storeFile은 원본 파일의 절대 경로(Windows는 C:/Users/... 형태)를 사용한다.
