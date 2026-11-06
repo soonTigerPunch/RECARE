@@ -4,7 +4,9 @@
 
 식재료 등록 → 소비기한 확인 → 먹음·폐기 기록 → 다음 장보기까지 연결합니다. 기본 재고 기록은 계정 없이 기기 안의 SQLite에 저장하는 Flutter 앱입니다. 개발 중인 AI 레시피 추천은 별도의 Supabase 서버를 사용합니다.
 
-## 최신 버전 · 1.1.1+6
+## 현재 다운로드 · 1.1.1+6
+
+저장소의 개발 버전은 1.2.0+7입니다. 1.2.0 테스트 APK는 아직 GitHub 릴리스에 업로드되지 않았으므로 아래 링크는 기존 1.1.1 APK를 제공합니다.
 
 **이번 업데이트는 소비기한 확인, 여러 재료 등록, 장보기, 실행 취소를 추가한 사용성 업데이트입니다.**
 
@@ -47,15 +49,13 @@
 
 데이터는 해당 기기에 저장됩니다. 계정 동기화나 자동 클라우드 백업은 제공하지 않으며 앱 삭제 시 기록이 사라집니다. 처리 기록이 있는 재료는 이력을 보존합니다. 자세한 동작은 [사용성 기능 안내](docs/EVERYDAY_USABILITY.md)를 참고하세요.
 
-## AI 레시피 추천 · 개발 중
+## AI 레시피 추천 · 테스트 준비 중
 
-홈에서 남은 재료를 선택해 OpenAI 기반 레시피 추천으로 연결하는 기능을 추가합니다.
-추천 결과·상세, 기기 내 즐겨찾기/최근 추천, 장보기 연결, 조리 후 일괄 먹음 기록을
-포함합니다. 추천 서버는 Supabase Edge Function이며 OpenAI 키는 서버에서만 사용합니다.
+개발 버전에는 재료 선택, 추천 결과와 상세, 기기 내 즐겨찾기·최근 추천, 장보기 연결, 조리 후 일괄 먹음 기록이 구현돼 있습니다.
 
-현재 검증은 모의 API 응답을 사용합니다. 운영 Supabase 프로젝트 연결·배포와
-실제 OpenAI 생성 품질/비용 평가는 아직 수행하지 않았습니다.
-설정과 검증 범위는 [AI 레시피 안내](docs/AI_RECIPES.md)를 참고하세요.
+Supabase Edge Function과 데이터베이스가 구성됐고, 서버에 등록된 OpenAI 키로 제한된 실제 레시피 생성 테스트 1회에 성공했습니다. **온라인 추천은 아직 비활성 상태여서 앱에서 새 추천을 받을 수 없습니다.** 공개 전 운영 예산, 개인정보 안내, 남용 방지, 실제 사용자 흐름과 기기 검증이 남아 있습니다. 앱의 기존 재고·장보기 기능은 계속 사용할 수 있습니다.
+
+Supabase 프로젝트 URL과 publishable key는 앱에 포함되는 공개 설정입니다. OpenAI API 키와 Supabase 서비스 역할 키는 서버 전용이며 앱이나 저장소에 넣지 않습니다. 공개 키만으로 인증이나 남용 방지가 해결되지는 않습니다. 자세한 구성과 검증 범위는 [AI 레시피 안내](docs/AI_RECIPES.md)와 [서버 운영 안내](docs/AI_RECIPE_SERVER.md)를 참고하세요.
 
 ## 개발과 검증
 
@@ -65,16 +65,14 @@
 flutter pub get --enforce-lockfile
 flutter analyze --no-pub
 flutter test --no-pub
-flutter build apk --release
+flutter build apk --release --dart-define-from-file=config/recipe.public.json
 ```
 
 release 빌드는 `--no-pub` 없이 실행해 개발용 플러그인 등록을 갱신합니다.
 
-APK 출력: `build/app/outputs/flutter-apk/app-release.apk`. 현재 Android release 설정도 테스트용 debug 키로 서명합니다. 2026-10-24 공개 APK는 기존 1.0.3의 PC 서명키를 사용했습니다. 일반 CI나 다른 PC의 기본 debug 키는 동일하지 않으므로 업데이트 호환 APK를 만들려면 기존 키를 보존하고 사용해야 합니다. 키 파일은 저장소에 포함하지 않습니다. 정식 배포에는 별도 서명 설정이 필요합니다. [서명 수정 재배포 기록](docs/SIGNING_REDEPLOY_1.1.1.md)
+APK 출력: `build/app/outputs/flutter-apk/app-release.apk`. Android release 빌드에는 **기존 앱과 동일한 원본 서명키**가 필요합니다. 키 파일과 암호는 저장소에 포함하지 않으며, 키가 없거나 인증서가 다르면 빌드를 중단합니다. 로컬 설정과 검증 절차는 [Android 서명 안내](docs/ANDROID_SIGNING.md)를 참고하세요.
 
-클라우드 작업 공간에서는 먼저 `source /workspace/recare-env.sh`로 도구 경로를 불러옵니다. 프로젝트는 `/workspace/RECARE-main`, 편집기 설정은 `/workspace/RECARE.code-workspace`입니다. PC 바탕화면 폴더와 자동 동기화되는 경로는 아닙니다.
-
-검증 범위: Flutter 테스트 **122건**, 정적 검사, Android APK 빌드, Kotlin 알림 정책 14개와 실제 알림 SQL fixture 6개. 실제 기기의 알림 전달·권한·재부팅과 iPhone 설치·동작은 별도 QA 대상입니다.
+최근 검증: Flutter 정적 분석, 앱 테스트 **170개**, 서버 모의 테스트 **36개**, Android APK 서명·앱 ID·버전 코드 확인. 실제 기기의 업데이트 설치와 데이터 유지, iPhone 설치·동작은 별도 검증이 필요합니다.
 
 ## 팀 문서
 
