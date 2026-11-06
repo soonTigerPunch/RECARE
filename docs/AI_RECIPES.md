@@ -1,5 +1,9 @@
 # AI 레시피 추천 개발 안내
 
+> 2026-11-06 실제 프로젝트 확인 결과는 [배포 검증 현황](AI_RECIPE_DEPLOYMENT_STATUS.md)을 참고하세요.
+> 기존 배포·익명 인증·정리 스케줄이 확인됐으며 추천은 비활성입니다.
+> 아래의 미배포·mock-only 설명은 최초 구현 시점의 기록입니다.
+
 냉장고 재고를 선택해 최대 3개의 요리를 추천받고, 레시피를 기기에 저장하거나
 실제 조리 사용량을 기존 먹음 기록에 연결하는 기능입니다. 기존 재고·장보기는
 인터넷 없이 계속 사용할 수 있습니다.
@@ -30,10 +34,13 @@
 다음 **공개 설정값 두 개만** 전달합니다.
 
 ```sh
-flutter run \
-  --dart-define=RECARE_SUPABASE_URL=https://YOUR_PROJECT.supabase.co \
-  --dart-define=RECARE_SUPABASE_PUBLISHABLE_KEY=YOUR_PUBLIC_PUBLISHABLE_KEY
+flutter run --dart-define-from-file=config/recipe.public.json
+flutter build apk --release --dart-define-from-file=config/recipe.public.json
 ```
+
+`config/recipe.public.json`은 승인된 프로젝트의 URL과 공개 키만 포함합니다.
+Android/iOS CI 빌드도 같은 파일을 사용합니다. 서버는 현재 비활성 상태이므로
+연결된 앱에서도 새 추천은 준비 중 안내를 표시합니다.
 
 실기기에는 접근 가능한 HTTPS Supabase 주소가 필요합니다. 개발용 루프백 HTTP는
 로컬 테스트만 허용합니다. Android release 인터넷 권한을 포함합니다.

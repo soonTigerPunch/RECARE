@@ -67,3 +67,6 @@ recare_preferences.json
 
 # Kotlin compiler local state
 **/.kotlin/
+
+# Android Gradle reports and generated build outputs
+/android/build/

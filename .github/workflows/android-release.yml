@@ -25,14 +25,17 @@ jobs:
       - run: flutter pub get --enforce-lockfile
       - run: flutter analyze --no-pub
       - run: flutter test --no-pub
-      - run: flutter build apk --release
+      - name: Require original local signing configuration
+        run: |
+          test -f android/key.properties || { echo 'Original RECARE signing key required. See docs/ANDROID_SIGNING.md'; exit 1; }
+      - run: flutter build apk --release --dart-define-from-file=config/recipe.public.json
       - name: Verify and package
         run: |
           "$ANDROID_HOME/build-tools/36.0.0/apksigner" verify --print-certs build/app/outputs/flutter-apk/app-release.apk
-          cp build/app/outputs/flutter-apk/app-release.apk RECARE-1.1.1-android.apk
-          sha256sum RECARE-1.1.1-android.apk > SHA256SUMS.txt
+          cp build/app/outputs/flutter-apk/app-release.apk RECARE-1.2.0-beta.1-android.apk
+          sha256sum RECARE-1.2.0-beta.1-android.apk > SHA256SUMS.txt
       - name: Publish test release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create v1.1.1-mvp RECARE-1.1.1-android.apk SHA256SUMS.txt --target "$GITHUB_SHA" --title 'RE:CARE 1.1.1 — 소비기한 통합 확인·장보기·실행 취소' --notes-file docs/RELEASE_1.1.1.md --prerelease
+          gh release create v1.2.0-beta.1 RECARE-1.2.0-beta.1-android.apk SHA256SUMS.txt --target "$GITHUB_SHA" --title 'RE:CARE 1.2.0 beta 1 — AI 레시피 테스트'  --notes-file docs/RELEASE_1.2.0_BETA.md --prerelease
