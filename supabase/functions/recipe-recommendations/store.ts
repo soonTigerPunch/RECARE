@@ -16,6 +16,7 @@ export class JobStore {
     if (
       ![
         "recipe_rate_gate",
+        "recipe_pilot_access",
         "recipe_issue",
         "recipe_lookup",
         "recipe_reserve",

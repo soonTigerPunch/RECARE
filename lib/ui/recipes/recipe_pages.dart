@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:uuid/uuid.dart';
 
 import '../../data/inventory_repository.dart';
@@ -55,6 +56,53 @@ class _RecipeHubPageState extends State<RecipeHubPage>
   final history = <String>[];
   bool allowExit = false;
   Timer? midnight;
+
+  Future<void> _registration() async {
+    final client = widget.client;
+    if (client is! SupabaseRecipeClient || preparing || page == 'loading') {
+      return;
+    }
+    setState(() => preparing = true);
+    try {
+      final id = await client.testerId(widget.clock());
+      if (!mounted) return;
+      await showDialog<void>(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: const Text('추천 테스트 등록'),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  '이 설치의 등록 ID를 운영자에게 전달해주세요. 등록 후 추천을 사용할 수 있어요. 재설치하면 다시 등록해야 해요. ID만으로 다른 사람이 추천을 요청할 수는 없어요.',
+                ),
+                const SizedBox(height: 12),
+                SelectableText(id),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () async {
+                await Clipboard.setData(ClipboardData(text: id));
+              },
+              child: const Text('ID 복사'),
+            ),
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('닫기'),
+            ),
+          ],
+        ),
+      );
+    } on RecipeClientException catch (e) {
+      if (mounted) setState(() => error = e.message);
+    } finally {
+      if (mounted) setState(() => preparing = false);
+    }
+  }
 
   @override
   void initState() {
@@ -446,6 +494,14 @@ class _RecipeHubPageState extends State<RecipeHubPage>
               : null,
           title: Text(title),
           actions: [
+            if (widget.client is SupabaseRecipeClient)
+              IconButton(
+                tooltip: '테스트 등록 ID',
+                onPressed: preparing || page == 'loading'
+                    ? null
+                    : _registration,
+                icon: const Icon(Icons.badge_outlined),
+              ),
             IconButton(
               tooltip: '전송 및 저장 안내',
               onPressed: _privacy,

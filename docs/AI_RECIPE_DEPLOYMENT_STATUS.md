@@ -1,3 +1,5 @@
+> 최신 상태: [실제 추천 테스트 운영](AI_RECIPE_PILOT.md). 제한 테스트에서 실제 Flutter 클라이언트 추천/조회/회수 검증 성공. 아래는 이전 작업 이력이다.
+
 > 2026-11-07 새 프로젝트 `tpugkdsqrsiucnjyakqx`: 마이그레이션 `20261105000000`, 익명 인증, Edge Function v1, 매분 정리 작업 설정 완료. DB 예산 0 및 기능 비활성, 함수 503 disabled 확인. Supabase의 `OPENAI_API_KEY`로 비공개 임시 함수에서 실제 생성 성공(아래 최신 검증 참고). 아래 내용은 이전 프로젝트 이력입니다.
 
 # AI recipe deployment verification — 2026-11-06 (KST)

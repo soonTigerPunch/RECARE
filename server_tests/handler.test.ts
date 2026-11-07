@@ -59,6 +59,7 @@ function harness(opts: any = {}) {
       const fn = url.split("/").at(-1);
       if (opts.rpcFail)
         return json({ message: "service-only-fake private database" }, 500);
+      if (fn === "recipe_pilot_access") return json({code: opts.pilotAllowed ? "ok" : "not_enrolled"});
       if (fn === "recipe_rate_gate")
         return json({ code: opts.rateLimited ? "rate_limited" : "ok" });
       const key = body.p_session_hash + "/" + body.p_request_id;
@@ -128,7 +129,7 @@ function harness(opts: any = {}) {
         ...(method === "GET" ? {} : { body: JSON.stringify(payload) }),
       },
     );
-  return { calls, jobs, handler, request, generations: () => generations };
+  return { fetcher, calls, jobs, handler, request, generations: () => generations };
 }
 test("disabled-by-default endpoint cannot call any dependency", async () => {
   assert.equal(typeof mod.createHandler, "function");
@@ -298,4 +299,36 @@ test("unsafe method, request shape and non-JSON content never trigger generation
   const wrong = h.request();
   wrong.headers.set("Content-Type", "text/plain");
   assert.equal((await h.handler()(wrong)).status, 400);
+});
+
+
+test("pilot requires membership before issue or lookup and keeps public policy closed", async () => {
+  for (const allowed of [false, true]) {
+    const h = harness({pilotAllowed:allowed});
+    const c = {...config(), policyApproved:false, pilotMode:true, trustedIpHeader:""};
+    const handler = mod.createHandler(c,h.fetcher);
+    const r=await handler(h.request("POST", {request_id:requestFixture().request_id}, "?action=issue"));
+    assert.equal(r.status,allowed?200:403,JSON.stringify(await r.clone().json()));
+    assert.equal(h.generations(),0);
+  }
+});
+
+test("pilot registration returns only caller pseudonym; denied lookups never reach jobs", async () => {
+ const h=harness(); const c={...config(),pilotMode:true,policyApproved:false,trustedIpHeader:""};
+ const handle=mod.createHandler(c,h.fetcher);
+ const r=await handle(h.request("POST",{},"?action=registration"));
+ assert.equal(r.status,200); const d=await r.json();
+ assert.deepEqual(Object.keys(d),["registration_id"]);assert.match(d.registration_id,/^[a-f0-9]{64}$/);
+ const denied=await handle(h.request("GET",null,"?request_id="+requestFixture().request_id));
+ assert.equal(denied.status,403);assert.equal(h.generations(),0);
+ assert.equal(h.calls.some(x=>x.url.endsWith("recipe_lookup")),false);
+});
+test("pilot admitted request generates once; revoked membership blocks replay", async () => {
+ const opts={pilotAllowed:true};const h=harness(opts);
+ const handle=mod.createHandler({...config(),pilotMode:true,policyApproved:false,trustedIpHeader:""},h.fetcher);
+ assert.equal((await handle(h.request("POST",{request_id:requestFixture().request_id},"?action=issue"))).status,200);
+ assert.equal((await handle(h.request())).status,200);
+ assert.equal((await handle(h.request())).status,200);assert.equal(h.generations(),1);
+ opts.pilotAllowed=false;
+ assert.equal((await handle(h.request())).status,403);assert.equal(h.generations(),1);
 });

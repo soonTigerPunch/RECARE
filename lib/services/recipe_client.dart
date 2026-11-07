@@ -88,6 +88,57 @@ class SupabaseRecipeClient implements RecipeClient {
     }
   }
 
+  /// Returns only this installation's registration code, never its tokens.
+  Future<String> testerId(DateTime now) async {
+    if (_busy) throw const RecipeClientException('in_progress', '요청을 처리 중이에요.');
+    _busy = true;
+    final epoch = _epoch;
+    try {
+      return await (() async {
+        final base = _base;
+        final session = await _session(base, now, epoch);
+        final response = await _send(
+          'POST',
+          base.resolve(
+            '/functions/v1/recipe-recommendations?action=registration',
+          ),
+          epoch,
+          body: {},
+          token: session.accessToken,
+        );
+        final id = response['registration_id'];
+        if (id is! String || !RegExp(r'^[a-f0-9]{64}$').hasMatch(id)) {
+          throw const RecipeClientException(
+            'configuration',
+            '등록 ID를 확인하지 못했어요.',
+          );
+        }
+        return id;
+      })().timeout(
+        const Duration(seconds: 15),
+        onTimeout: () {
+          _epoch++;
+          _active?.abort();
+          throw const RecipeClientException(
+            'timeout',
+            '등록 ID 확인이 지연되고 있어요. 다시 시도해주세요.',
+          );
+        },
+      );
+    } on FormatException {
+      throw const RecipeClientException('configuration', '등록 응답을 확인하지 못했어요.');
+    } on SocketException {
+      throw const RecipeClientException('unavailable', '인터넷 연결을 확인해주세요.');
+    } on HandshakeException {
+      throw const RecipeClientException('unavailable', '서버 연결을 확인하지 못했어요.');
+    } on HttpException {
+      throw const RecipeClientException('unavailable', '서버 연결을 확인하지 못했어요.');
+    } finally {
+      _active = null;
+      _busy = false;
+    }
+  }
+
   @override
   Future<RecipeResult> recommend(RecipeRequest request, DateTime now) async =>
       (await _run(request, now, lookupOnly: false))!;
@@ -439,6 +490,7 @@ class SupabaseRecipeClient implements RecipeClient {
 
   static RecipeClientException _safeError(String code, DateTime? retryAt) {
     final message = switch (code) {
+      'not_enrolled' => '이 기기는 추천 테스트에 등록되지 않았어요. 상단의 테스트 등록 ID를 운영자에게 알려주세요.',
       'unauthorized' => '익명 이용 연결이 만료됐어요. 다시 연결해주세요.',
       'disabled' => '새 레시피 추천이 잠시 중지됐어요. 저장한 레시피는 볼 수 있어요.',
       'daily_limit' => '오늘 추천 횟수를 모두 사용했어요. 다음 이용 가능 시간을 확인해주세요.',

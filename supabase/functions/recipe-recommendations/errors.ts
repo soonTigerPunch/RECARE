@@ -1,4 +1,5 @@
 export const messages: Record<string, string> = {
+  not_enrolled: "이 기기는 추천 테스트에 등록되지 않았어요. 테스트 등록 ID를 운영자에게 알려주세요.",
   invalid_request: "입력 조건을 확인해 주세요.",
   unauthorized: "익명 이용 세션을 다시 연결해 주세요.",
   disabled: "추천 기능을 준비하고 있어요.",
@@ -16,6 +17,7 @@ export const messages: Record<string, string> = {
   not_found: "발급된 추천 요청을 찾을 수 없어요.",
 };
 const statuses: Record<string, number> = {
+  not_enrolled: 403,
   invalid_request: 400,
   unauthorized: 401,
   disabled: 503,

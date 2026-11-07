@@ -94,6 +94,8 @@ void main() {
           'expires_in': 3600,
           'user': {'id': 'anonymous-user'},
         });
+      } else if (req.uri.queryParameters['action'] == 'registration') {
+        await reply(req, {'registration_id': 'a' * 64});
       } else if (req.uri.queryParameters['action'] == 'issue') {
         await reply(req, {
           'request_id': request.requestId,
@@ -128,6 +130,43 @@ void main() {
     await server.close(force: true);
     await inventory.close();
     await temporary.delete(recursive: true);
+  });
+  test('registration reports offline errors without leaking raw network exceptions', () async {
+    await server.close(force: true);
+    await expectLater(
+      client.testerId(now),
+      throwsA(
+        isA<RecipeClientException>().having(
+          (e) => e.code,
+          'code',
+          'unavailable',
+        ),
+      ),
+    );
+  });
+  test(
+    'stalled registration times out instead of staying busy forever',
+    () async {
+      handler = (req) async {
+        await utf8.decoder.bind(req).join();
+      };
+      await expectLater(
+        client.testerId(now),
+        throwsA(
+          isA<RecipeClientException>().having((e) => e.code, 'code', 'timeout'),
+        ),
+      );
+    },
+  );
+  test('registration ID creates auth only and reuses the same installation identity', () async {
+    expect(await client.testerId(now), 'a' * 64);
+    expect(await client.testerId(now), 'a' * 64);
+    expect(calls.length, 3);
+    expect(calls.first, contains('/auth/v1/signup'));
+    expect(
+      calls.skip(1).every((v) => v.contains('action=registration')),
+      isTrue,
+    );
   });
   test('authenticates, issues and validates generation without sending private stock fields', () async {
     final result = await client.recommend(request, now);

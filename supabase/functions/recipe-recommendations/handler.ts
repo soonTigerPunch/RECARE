@@ -11,6 +11,7 @@ import type { Fetcher, ModelConfig } from "./model.ts";
 import { JobStore } from "./store.ts";
 export type ServerConfig = ModelConfig & {
   enabled: boolean;
+  pilotMode?: boolean;
   policyApproved: boolean;
   supabaseUrl: string;
   publishableKey: string;
@@ -24,6 +25,7 @@ export function configFromEnv(
 ): ServerConfig {
   return {
     enabled: env("RECIPE_ENABLED") === "true",
+    pilotMode: env("RECIPE_PILOT_MODE") === "true",
     policyApproved: env("RECIPE_PUBLIC_POLICY_APPROVED") === "true",
     supabaseUrl: (env("SUPABASE_URL") ?? "").replace(/\/$/, ""),
     publishableKey: env("RECIPE_PUBLISHABLE_KEY") ?? "",
@@ -56,15 +58,15 @@ function checkConfig(config: ServerConfig) {
   }
   if (
     !validUrl ||
-    !config.policyApproved ||
+    (!config.pilotMode && !config.policyApproved) ||
     !config.publishableKey ||
     !config.serviceRoleKey ||
     !config.openaiKey ||
     !/^[a-f0-9]{64}$/i.test(config.encryptionKey) ||
     !/^[a-f0-9]{64}$/i.test(config.pseudonymKey) ||
-    !["x-forwarded-for", "x-real-ip", "cf-connecting-ip"].includes(
+    (!config.pilotMode && !["x-forwarded-for", "x-real-ip", "cf-connecting-ip"].includes(
       config.trustedIpHeader,
-    ) ||
+    )) ||
     !Number.isSafeInteger(config.inputPriceMicro) ||
     config.inputPriceMicro < 1 ||
     !Number.isSafeInteger(config.outputPriceMicro) ||
@@ -96,7 +98,7 @@ async function authenticate(
   config: ServerConfig,
   fetcher: Fetcher,
   deadline: number,
-): Promise<string> {
+): Promise<{session: string; userHash: string}> {
   const authorization = request.headers.get("authorization") ?? "";
   if (
     request.headers.get("apikey") !== config.publishableKey ||
@@ -161,10 +163,7 @@ async function authenticate(
       claims.iat * 1000 > now + 60000
     )
       throw new RecipeError("unauthorized");
-    return pseudonym(
-      "session:" + user.id + ":" + claims.session_id,
-      config.pseudonymKey,
-    );
+    return {session: await pseudonym("session:" + user.id + ":" + claims.session_id, config.pseudonymKey), userHash: await pseudonym("pilot-user:" + user.id, config.pseudonymKey)};
   } finally {
     clearTimeout(timer);
   }
@@ -222,20 +221,21 @@ export function createHandler(
       if (!["GET", "POST"].includes(request.method))
         throw new RecipeError("invalid_request");
       const url = new URL(request.url);
+      const isRegistration = config.pilotMode && request.method === "POST" && url.searchParams.get("action") === "registration";
       const isIssue =
         request.method === "POST" && url.searchParams.get("action") === "issue";
       if (
         [...url.searchParams.keys()].some((k) =>
           request.method === "GET"
             ? k !== "request_id"
-            : !isIssue || k !== "action",
+            : !(isIssue || isRegistration) || k !== "action",
         )
       )
         throw new RecipeError("invalid_request");
-      const ip = (request.headers.get(config.trustedIpHeader) ?? "")
+      const ip = (config.pilotMode ? "" : (request.headers.get(config.trustedIpHeader) ?? ""))
         .split(",")[0]
         .trim();
-      if (ip.length < 3 || ip.length > 64 || !/^[:a-fA-F0-9.]+$/.test(ip))
+      if (!config.pilotMode && (ip.length < 3 || ip.length > 64 || !/^[:a-fA-F0-9.]+$/.test(ip)))
         throw new RecipeError("configuration");
       const store = new JobStore(
         config.supabaseUrl,
@@ -243,12 +243,28 @@ export function createHandler(
         fetcher,
         deadline,
       );
-      const rate = await store.rpc("recipe_rate_gate", {
-        p_scope_hash: await pseudonym("ip:" + ip, config.pseudonymKey),
-        p_limit: 60,
-      });
-      if (rate.code !== "ok") throwCode(rate);
-      const session = await authenticate(request, config, fetcher, deadline);
+      let identity: {session: string; userHash: string};
+      if (config.pilotMode) {
+        identity = await authenticate(request, config, fetcher, deadline);
+        if (isRegistration) {
+          const rate = await store.rpc("recipe_rate_gate", {p_scope_hash: identity.userHash, p_limit: 10});
+          if (rate.code !== "ok") throwCode(rate);
+          return json({registration_id: identity.userHash});
+        }
+        const access = await store.rpc("recipe_pilot_access", {p_user_hash: identity.userHash});
+        if (access.code !== "ok") throw new RecipeError("not_enrolled");
+      } else {
+        const rate = await store.rpc("recipe_rate_gate", {
+          p_scope_hash: await pseudonym("ip:" + ip, config.pseudonymKey), p_limit: 60,
+        });
+        if (rate.code !== "ok") throwCode(rate);
+        identity = await authenticate(request, config, fetcher, deadline);
+      }
+      const session = identity.session;
+      if (config.pilotMode) {
+        const rate = await store.rpc("recipe_rate_gate", {p_scope_hash: identity.userHash, p_limit: 30});
+        if (rate.code !== "ok") throwCode(rate);
+      }
       if (request.method === "GET") {
         const id = url.searchParams.get("request_id");
         if (!uuid(id)) throw new RecipeError("invalid_request");
