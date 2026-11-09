@@ -332,3 +332,20 @@ test("pilot admitted request generates once; revoked membership blocks replay", 
  opts.pilotAllowed=false;
  assert.equal((await handle(h.request())).status,403);assert.equal(h.generations(),1);
 });
+
+test('menu and selected-detail stages persist, bind input/session, and replay without more generation',async()=>{
+ let menuCall=true;
+ const h=harness({model:()=>new Response(JSON.stringify({status:'completed',output:[{type:'message',content:[{type:'output_text',text:JSON.stringify(menuCall?(menuCall=false,{status:'ok',message:'',menus:[{title:outputFixture().recipes[0].title},{title:'두부찜'},{title:'두부볶음'}]}):outputFixture())}]}],usage:{input_tokens:200,output_tokens:100}}))});
+ const handle=h.handler();const parent=requestFixture();
+ assert.equal((await handle(h.request('POST',{request_id:parent.request_id},'?action=issue'))).status,200);
+ const menus=await handle(h.request('POST',{...parent,stage:'menus'}));assert.equal(menus.status,200);const body=await menus.json();assert.equal(body.menus.length,3);assert.equal(body.recipes,undefined);
+ const child={...parent,request_id:'cccccccc-cccc-4ccc-8ccc-cccccccccccc',stage:'detail',parent_request_id:parent.request_id,menu_id:'m0'};
+ assert.equal((await handle(h.request('POST',{request_id:child.request_id},'?action=issue'))).status,200);
+ assert.equal((await handle(h.request('POST',{...child,menu_id:'m9'}))).status,400);
+ assert.equal((await handle(h.request('POST',{...child,servings:2}))).status,409);
+ const otherSession=h.request('POST',child);otherSession.headers.set('Authorization','Bearer '+token({session_id:'dddddddd-dddd-4ddd-8ddd-dddddddddddd'}));
+ assert.equal((await handle(otherSession)).status,404);
+ const detail=await handle(h.request('POST',child));assert.equal(detail.status,200);assert.equal((await detail.json()).recipes[0].title,body.menus[0].title);
+ assert.equal((await handle(h.request('POST',child))).status,200);assert.equal(h.generations(),2);
+ assert.equal((await handle(h.request('POST',{...parent,stage:undefined}))).status,409);
+});

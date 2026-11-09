@@ -201,3 +201,23 @@ test("provider model-access and invalid-model errors are nonretryable configurat
     assert.equal(calls, 1);
   }
 });
+
+test('menu generation uses title-only schema, asks for 3-5 distinct choices and removes duplicates', async()=>{
+ const value=await mod.generateMenus(requestFixture(),config,async(_url:any,init:any)=>{
+  const b=JSON.parse(init.body);assert.ok(b.instructions.includes('3 to 5'));assert.equal(b.text.format.schema.properties.recipes,undefined);
+  return response({status:'ok',message:'',menus:[{title:'두부 구이'},{title:'두부구이'},{title:'두부찜'},{title:'두부볶음'}]});
+ },Date.now()+30000);
+ assert.equal(value.value.menus.length,3);assert.deepEqual(value.value.menus[0],{id:'m0',title:'두부 구이'});
+});
+test('selected detail rejects a different menu title instead of silently substituting', async()=>{
+ await assert.rejects(()=>mod.generateSelectedRecipe(requestFixture(),'두부찜',config,async()=>response(outputFixture()),Date.now()+30000), (e:any)=>e.code==='invalid_output');
+});
+
+test('menus reject obvious unavailable named foods and collapse known dish renamings',async()=>{
+ const req={...requestFixture(),staples:[],allow_shopping:false};
+ const v=await mod.generateMenus(req,config,async(_url:any,init:any)=>{
+  const b=JSON.parse(init.body);assert.ok(b.instructions.includes('1000 = 1'));
+  return response({status:'ok',message:'',menus:[{title:'버터 두부구이'},{title:'식용유 두부구이'},{title:'구운 두부'},{title:'두부 구이'},{title:'두부찜'}]});
+ },Date.now()+30000);
+ assert.deepEqual(v.value.menus.map((m:any)=>m.title),['구운 두부','두부찜']);
+});

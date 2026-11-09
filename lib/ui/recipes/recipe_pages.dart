@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -50,6 +51,12 @@ class _RecipeHubPageState extends State<RecipeHubPage>
   late String page = widget.initialPage;
   String? notice, error;
   RecipeResult? result;
+  RecipeMenuResult? menuResult;
+  RecipeRequest? menuRequest;
+  DateTime? menuRequestedAt;
+  String? pendingMenuId;
+  final menuChildren = <String, RecipeRequest>{};
+  final menuDetails = <String, RecipeResult>{};
   RecipeRequest? pendingRequest;
   RecipeRequest? resultRequest;
   int requestEpoch = 0;
@@ -253,6 +260,7 @@ class _RecipeHubPageState extends State<RecipeHubPage>
       content: const SingleChildScrollView(
         child: Text(
           '추천을 요청하면 선택 재료의 이름·양·단위·남은 일수, 확인한 양념, 인분·시간·구매 조건과 제외 조건을 RECARE 서버와 OpenAI로 전송해 조리법을 생성해요. 구매금액, 전체 처리 이력과 기기 재고 ID는 OpenAI에 보내지 않아요.\n\n'
+          '메뉴와 상세 생성은 각각 하루 5회 작업 한도에 포함돼요. 하루에 상세까지 최대 2건과 메뉴 1건을 요청할 수 있어요.\n\n'
           '원문 제외 조건은 현재 화면의 메모리에만 유지하며 최근 추천이나 즐겨찾기에 저장하지 않아요. 레시피 본문에는 조건을 반영한 내용이 남을 수 있어요. 최근 5회와 즐겨찾기 최대 100개는 이 기기에 저장하며 앱 삭제 시 사라져요.\n\n'
           '서비스 개인정보 처리방침의 공개 주소는 아직 준비 중이에요. 공개 운영 전 처리 주체·보관 정책과 정식 안내를 확정해야 해요. OpenAI의 모든 로그가 즉시 삭제된다는 의미는 아니에요.',
         ),
@@ -326,6 +334,16 @@ class _RecipeHubPageState extends State<RecipeHubPage>
         exclusions: exclusions.text.trim(),
       );
       request.toJson(widget.clock());
+      history.removeWhere(
+        (entry) => ['menus', 'results', 'loading', 'error'].contains(entry),
+      );
+      menuRequest = request;
+      menuRequestedAt = widget.clock();
+      pendingMenuId = null;
+      menuResult = null;
+      menuChildren.clear();
+      menuDetails.clear();
+      issuedDetails.clear();
       pendingRequest = request;
       await _runRequest(request, lookup: false);
     } catch (e) {
@@ -341,15 +359,57 @@ class _RecipeHubPageState extends State<RecipeHubPage>
   }) async {
     final epoch = ++requestEpoch;
     setState(() {
-      if (!lookup && page != 'loading') history.add(page);
+      if (!lookup && page != 'loading' && pendingMenuId == null) {
+        history.add(page);
+      }
       page = 'loading';
       error = null;
     });
     try {
+      final client = widget.client;
+      final chosenMenu = pendingMenuId;
+      if (client is MenuRecipeClient && chosenMenu == null) {
+        final menus =
+            await (lookup
+                    ? (client as MenuRecipeClient).lookupMenus(
+                        request,
+                        widget.clock(),
+                      )
+                    : (client as MenuRecipeClient).recommendMenus(
+                        request,
+                        widget.clock(),
+                      ))
+                .timeout(const Duration(seconds: 35));
+        if (!mounted || epoch != requestEpoch) return;
+        setState(() {
+          if (menus == null) {
+            page = 'error';
+            error = '이 요청의 저장된 결과가 아직 없어요. 같은 요청 결과를 다시 확인해주세요.';
+          } else {
+            menuResult = menus;
+            page = 'menus';
+          }
+        });
+        return;
+      }
       final response =
-          await (lookup
-                  ? widget.client.lookup(request, widget.clock())
-                  : widget.client.recommend(request, widget.clock()))
+          await (client is MenuRecipeClient && chosenMenu != null
+                  ? (lookup
+                        ? (client as MenuRecipeClient).lookupMenuDetail(
+                            request,
+                            menuRequest!.requestId,
+                            chosenMenu,
+                            widget.clock(),
+                          )
+                        : (client as MenuRecipeClient).recommendMenuDetail(
+                            request,
+                            menuRequest!.requestId,
+                            chosenMenu,
+                            widget.clock(),
+                          ))
+                  : (lookup
+                        ? client.lookup(request, widget.clock())
+                        : client.recommend(request, widget.clock())))
               .timeout(const Duration(seconds: 35));
       if (!mounted || epoch != requestEpoch) return;
       if (response == null) {
@@ -359,6 +419,25 @@ class _RecipeHubPageState extends State<RecipeHubPage>
         });
         return;
       }
+      if (chosenMenu != null) {
+        final expected = menuResult!.menus.firstWhere(
+          (m) => m.id == chosenMenu,
+        );
+        if (response.recipes.isEmpty) {
+          menuDetails[chosenMenu] = response;
+          setState(() => page = 'menus');
+          await _showNoMatch(response);
+          return;
+        }
+        if (response.recipes.length != 1 ||
+            response.recipes.single.title != expected.title) {
+          throw const RecipeClientException(
+            'invalid_output',
+            '선택한 메뉴의 상세를 확인하지 못했어요.',
+          );
+        }
+        menuDetails[chosenMenu] = response;
+      }
       await widget.repository.saveRecent(response);
       if (!mounted || epoch != requestEpoch) return;
       recent = await widget.repository.loadRecent();
@@ -366,8 +445,11 @@ class _RecipeHubPageState extends State<RecipeHubPage>
       setState(() {
         result = response;
         resultRequest = request;
-        page = 'results';
+        page = chosenMenu == null ? 'results' : 'menus';
       });
+      if (chosenMenu != null && mounted && epoch == requestEpoch) {
+        await _openDetail(response.recipes.single);
+      }
     } on RecipeClientException catch (e) {
       if (!mounted || epoch != requestEpoch) return;
       setState(() {
@@ -392,12 +474,126 @@ class _RecipeHubPageState extends State<RecipeHubPage>
     }
   }
 
+  Future<void> _showNoMatch(RecipeResult response) async {
+    final edit = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('선택한 메뉴를 만들기 어려워요'),
+        content: Text(
+          response.message.isNotEmpty
+              ? response.message
+              : '현재 재료와 조건으로 만들 수 없어요. 다른 메뉴를 선택하거나 조건을 수정해주세요.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('다른 메뉴 선택'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('조건 수정'),
+          ),
+        ],
+      ),
+    );
+    if (mounted && edit == true) _show('input');
+  }
+
+  Future<void> _chooseMenu(RecipeMenu menu) async {
+    if (page == 'loading' || preparing) return;
+    final cached = menuDetails[menu.id];
+    if (cached != null) {
+      if (cached.recipes.isEmpty) {
+        await _showNoMatch(cached);
+      } else {
+        await _openDetail(cached.recipes.single);
+      }
+      return;
+    }
+    final original = menuRequest!;
+    var child = menuChildren[menu.id];
+    if (child == null) {
+      setState(() => preparing = true);
+      final epoch = requestEpoch;
+      try {
+        final snapshot = await widget.inventory.load();
+        if (!mounted || epoch != requestEpoch || page != 'menus') return;
+        final originalFoods = original.stocks.expand((s) => s.foods).toList();
+        final ids = originalFoods.map((f) => f.id).toSet();
+        String signature(Iterable<Food> list) {
+          final parts =
+              list
+                  .where((f) => ids.contains(f.id))
+                  .map(
+                    (f) =>
+                        '${f.id}|${f.name}|${f.remaining}|${f.unit.code}|${dateText(f.expiry)}',
+                  )
+                  .toList()
+                ..sort();
+          return parts.join(';');
+        }
+
+        final validIds = eligibleRecipeFoods(
+          snapshot.foods,
+          widget.clock(),
+        ).map((f) => f.id).toSet();
+        final changed =
+            signature(originalFoods) != signature(snapshot.foods) ||
+            !validIds.containsAll(ids) ||
+            jsonEncode(original.toJson(widget.clock())) !=
+                jsonEncode(original.toJson(menuRequestedAt!));
+        if (changed) {
+          setState(() {
+            foods = snapshot.foods;
+            selected.retainAll(validIds);
+            page = 'input';
+            notice = '재고 또는 날짜가 바뀌었어요. 선택한 재료와 수량을 다시 확인해주세요.';
+          });
+          return;
+        }
+        child = RecipeRequest(
+          requestId: const Uuid().v4(),
+          stocks: original.stocks,
+          staples: original.staples,
+          servings: original.servings,
+          maxMinutes: original.maxMinutes,
+          allowShopping: original.allowShopping,
+          exclusions: original.exclusions,
+        );
+        menuChildren[menu.id] = child;
+      } catch (e) {
+        if (mounted) {
+          setState(() {
+            page = 'input';
+            error = recipeError(e);
+          });
+        }
+        return;
+      } finally {
+        if (mounted) setState(() => preparing = false);
+      }
+    }
+    if (!mounted) return;
+    pendingMenuId = menu.id;
+    pendingRequest = child;
+    // A previously issued child is only replayed; selecting again never generates it twice.
+    final replay = issuedDetails.contains(menu.id);
+    issuedDetails.add(menu.id);
+    await _runRequest(child, lookup: replay);
+  }
+
+  final issuedDetails = <String>{};
+
   void _cancel() {
     requestEpoch++;
     widget.client.cancel();
     setState(() {
-      page = 'input';
-      if (history.isNotEmpty && history.last == 'input') history.removeLast();
+      page = pendingMenuId != null && menuResult != null ? 'menus' : 'input';
+      if (pendingMenuId == null &&
+          history.isNotEmpty &&
+          history.last == 'input') {
+        history.removeLast();
+      }
       preparing = false;
       notice = '추천을 취소했어요. 이미 시작된 서버 작업의 비용은 발생할 수 있어요.';
     });
@@ -449,6 +645,7 @@ class _RecipeHubPageState extends State<RecipeHubPage>
       'recent' => '최근 추천',
       'favorites' => '즐겨찾기',
       'results' => '추천 결과',
+      'menus' => '메뉴 선택',
       _ => 'AI 레시피',
     };
     return PopScope(
@@ -571,6 +768,29 @@ class _RecipeHubPageState extends State<RecipeHubPage>
       );
     }
     if (page == 'input') return _input();
+    if (page == 'menus') {
+      if (menuResult == null) return _input();
+      return ListView(
+        padding: const EdgeInsets.all(Space.lg),
+        children: [
+          if (menuResult!.menus.isEmpty)
+            Text(
+              menuResult!.message.isNotEmpty
+                  ? menuResult!.message
+                  : '조건에 맞는 메뉴 ${menuResult!.menus.length}개를 찾았어요.',
+            ),
+          for (final menu in menuResult!.menus)
+            Padding(
+              padding: const EdgeInsets.only(bottom: Space.md),
+              child: FilledButton(
+                key: ValueKey('recipe-menu-${menu.id}'),
+                onPressed: preparing ? null : () => _chooseMenu(menu),
+                child: Text(menu.title),
+              ),
+            ),
+        ],
+      );
+    }
     if (page == 'error') {
       return ListView(
         padding: const EdgeInsets.all(Space.lg),

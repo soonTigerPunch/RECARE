@@ -64,3 +64,12 @@ Methods:
 `RecipeHubPage({required InventoryRepository inventory,required RecipeRepository repository,required RecipeClient client,required DateTime Function() clock, String initialPage='input',Future<void> Function()? onRegister})` has full-screen input/recent/favorites entry. Client owned by parent, not closed by page. UI may split additional files in same directory.
 
 Root integrates home routes, injects optional RecipeClient into RecareApp and passes shared repositories; refreshes inventory/reminders after recipe route returns. Home has recipe entry and favorites even when stock empty, recent link only when saved results exist. UI loads stock live, validates on resume/before request/save, suppresses stale async callbacks; no real API in tests.
+
+
+## Menu-first flow (1.2.1)
+
+POST with `stage: "menus"` plus the original request fields returns `{status,message,menus:[{id:"m0",title:"두부조림"}],generated_at,generation}`. Only titles are generated; `recipes` is absent. Up to five distinct feasible options, normally three to five. If the conditions permit fewer, return fewer; no_match has an empty list. Names are checked for normalized/known alias duplicates and obvious forbidden ingredients; semantic feasibility remains a model limitation.
+
+For detail, issue a separate child UUID and POST the same input conditions plus `stage:"detail",parent_request_id,menu_id`. The server verifies the completed, unexpired menu parent in the same session, binds input hash excluding request_id, and selects the stored title. Caller-supplied titles are not accepted. Result is the existing recipes shape with exactly the selected dish (or no_match). Both operations use atomic reservation/settlement and session quota. GET by either request_id only replays its own saved result and never generates. Omitting stage retains legacy compatibility.
+
+`generation` includes observed calls, input/output token counts and cost_micro estimated from configured prices. This is not a billing invoice. Unknown provider usage remains conservatively charged. A successful user flow is normally two model calls; correction may add one per stage (at most four total). Reopening an existing selected detail uses the child result cache, not a new child UUID.

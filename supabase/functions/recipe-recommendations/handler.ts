@@ -6,7 +6,7 @@ import {
   requestHash,
 } from "./crypto.ts";
 import { uuid, validateRequest } from "./validation.ts";
-import { boundedText, generateRecipes, maximumCost } from "./model.ts";
+import { boundedText, generateRecipes, generateMenus, generateSelectedRecipe, maximumCost } from "./model.ts";
 import type { Fetcher, ModelConfig } from "./model.ts";
 import { JobStore } from "./store.ts";
 export type ServerConfig = ModelConfig & {
@@ -296,13 +296,30 @@ export function createHandler(
           expires_at: record.expires_at,
         });
       }
-      const input = validateRequest(body),
-        lease = crypto.randomUUID(),
-        context = session + "/" + input.request_id;
+      const {stage, parent_request_id, menu_id, ...wire} = body ?? {};
+      if (stage !== undefined && stage !== 'menus' && stage !== 'detail') throw new RecipeError('invalid_request');
+      if (stage !== 'detail' && (parent_request_id !== undefined || menu_id !== undefined)) throw new RecipeError('invalid_request');
+      const input = validateRequest(wire), lease = crypto.randomUUID(), context = session + '/' + input.request_id;
+      const {request_id: ignoredId, ...conditions} = input;
+      const menuInputHash = await requestHash(conditions);
+      let selectedTitle: string | undefined;
+      if (stage === 'detail') {
+        if (!uuid(parent_request_id) || parent_request_id.toLowerCase() === input.request_id || typeof menu_id !== 'string' || !/^m[0-4]$/.test(menu_id)) throw new RecipeError('invalid_request');
+        const parentId = parent_request_id.toLowerCase();
+        const parent = await store.rpc('recipe_lookup',{p_session_hash:session,p_request_id:parentId});
+        if (parent.code !== 'complete' || !parent.ciphertext) throwCode(parent.code === 'issued' ? {code:'not_found'} : parent);
+        const saved = await decryptResult(parent.ciphertext,config.encryptionKey,session+'/'+parentId);
+        if (saved.stage !== 'menus' || saved.http_status !== 200) throw new RecipeError('invalid_request');
+        if (saved.menu_input_hash !== menuInputHash) throw new RecipeError('conflict');
+        const menu = saved.body?.menus?.find((m:any)=>m.id === menu_id);
+        if (!menu || typeof menu.title !== 'string') throw new RecipeError('invalid_request');
+        selectedTitle = menu.title;
+      }
+      const boundInput = stage === undefined ? input : {...input, stage, ...(stage === 'detail' ? {parent_request_id:parent_request_id.toLowerCase(),menu_id}: {})};
       const record = await store.rpc("recipe_reserve", {
         p_session_hash: session,
         p_request_id: input.request_id,
-        p_request_hash: await requestHash(input),
+        p_request_hash: await requestHash(boundInput),
         p_lease: lease,
         p_required_cost: maximumCost(config),
       });
@@ -314,13 +331,12 @@ export function createHandler(
         cost: number | null = null,
         errorCode: string | null = null;
       try {
-        const generated = await generateRecipes(
-          input,
-          config,
-          fetcher,
-          deadline - 1500,
-        );
-        result = { ...generated.value, generated_at: new Date().toISOString() };
+        const generated = stage === 'menus'
+          ? await generateMenus(input,config,fetcher,deadline-1500)
+          : stage === 'detail'
+            ? await generateSelectedRecipe(input,selectedTitle!,config,fetcher,deadline-1500)
+            : await generateRecipes(input,config,fetcher,deadline-1500);
+        result = { ...generated.value, generated_at: new Date().toISOString(), ...(stage ? {generation: { ...((generated as any).usage ?? {}),cost_micro:generated.costMicro }} : {}) };
         cost = generated.costMicro;
         success = true;
       } catch (error) {
@@ -332,7 +348,7 @@ export function createHandler(
       // The database lease survives process termination. A failed persistence call
       // never starts another model call; later lookup recovers a terminal timeout.
       const ciphertext = await encryptResult(
-        { http_status: httpStatus, body: result },
+        { http_status: httpStatus, body: result, stage: stage ?? "legacy", ...(stage === "menus" ? {menu_input_hash:menuInputHash} : {}) },
         config.encryptionKey,
         context,
       );

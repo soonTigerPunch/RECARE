@@ -12,6 +12,24 @@ abstract class RecipeClient {
   void close();
 }
 
+/// Optional capability, so older injected clients keep their existing flow.
+abstract class MenuRecipeClient {
+  Future<RecipeMenuResult> recommendMenus(RecipeRequest request, DateTime now);
+  Future<RecipeMenuResult?> lookupMenus(RecipeRequest request, DateTime now);
+  Future<RecipeResult> recommendMenuDetail(
+    RecipeRequest request,
+    String parentRequestId,
+    String menuId,
+    DateTime now,
+  );
+  Future<RecipeResult?> lookupMenuDetail(
+    RecipeRequest request,
+    String parentRequestId,
+    String menuId,
+    DateTime now,
+  );
+}
+
 class RecipeClientException implements Exception {
   const RecipeClientException(
     this.code,
@@ -28,7 +46,7 @@ class RecipeClientException implements Exception {
 
 /// Only the Supabase public project key belongs in application configuration.
 /// OpenAI and service-role credentials are owned by the Edge Function.
-class SupabaseRecipeClient implements RecipeClient {
+class SupabaseRecipeClient implements RecipeClient, MenuRecipeClient {
   SupabaseRecipeClient({
     required this.repository,
     String? supabaseUrl,
@@ -141,20 +159,92 @@ class SupabaseRecipeClient implements RecipeClient {
 
   @override
   Future<RecipeResult> recommend(RecipeRequest request, DateTime now) async =>
-      (await _run(request, now, lookupOnly: false))!;
+      (await _run<RecipeResult>(
+        request,
+        now,
+        lookupOnly: false,
+        parse: (json) => RecipeResult.fromResponse(json, request, now),
+      ))!;
 
   @override
   Future<RecipeResult?> lookup(RecipeRequest request, DateTime now) =>
-      _run(request, now, lookupOnly: true);
+      _run<RecipeResult>(
+        request,
+        now,
+        lookupOnly: true,
+        parse: (json) => RecipeResult.fromResponse(json, request, now),
+      );
 
-  Future<RecipeResult?> _run(
+  @override
+  Future<RecipeMenuResult> recommendMenus(
+    RecipeRequest request,
+    DateTime now,
+  ) async => (await _menus(request, now, false))!;
+  @override
+  Future<RecipeMenuResult?> lookupMenus(RecipeRequest request, DateTime now) =>
+      _menus(request, now, true);
+  Future<RecipeMenuResult?> _menus(
+    RecipeRequest request,
+    DateTime now,
+    bool lookup,
+  ) => _run<RecipeMenuResult>(
+    request,
+    now,
+    lookupOnly: lookup,
+    extra: {'stage': 'menus'},
+    parse: (json) =>
+        RecipeMenuResult.fromResponse(json, request.requestId, now),
+  );
+  @override
+  Future<RecipeResult> recommendMenuDetail(
+    RecipeRequest request,
+    String parentRequestId,
+    String menuId,
+    DateTime now,
+  ) async => (await _detail(request, parentRequestId, menuId, now, false))!;
+  @override
+  Future<RecipeResult?> lookupMenuDetail(
+    RecipeRequest request,
+    String parentRequestId,
+    String menuId,
+    DateTime now,
+  ) => _detail(request, parentRequestId, menuId, now, true);
+  Future<RecipeResult?> _detail(
+    RecipeRequest request,
+    String parentRequestId,
+    String menuId,
+    DateTime now,
+    bool lookup,
+  ) => _run<RecipeResult>(
+    request,
+    now,
+    lookupOnly: lookup,
+    extra: {
+      'stage': 'detail',
+      'parent_request_id': parentRequestId,
+      'menu_id': menuId,
+    },
+    parse: (json) {
+      final result = RecipeResult.fromResponse(json, request, now);
+      if (result.recipes.length > 1) {
+        throw const FormatException('Expected selected detail');
+      }
+      return result;
+    },
+  );
+
+  Future<T?> _run<T>(
     RecipeRequest request,
     DateTime now, {
     required bool lookupOnly,
+    required T Function(Map<String, dynamic>) parse,
+    Map<String, dynamic> extra = const {},
   }) async {
     // Validate before auth/network; a stale selection must never be sent.
     request.validate();
-    final payload = lookupOnly ? <String, dynamic>{} : request.toJson(now);
+    final payload = lookupOnly
+        ? <String, dynamic>{}
+        : {...request.toJson(now), ...extra};
     final base = _base;
     if (_busy) {
       throw const RecipeClientException(
@@ -187,7 +277,7 @@ class SupabaseRecipeClient implements RecipeClient {
             },
           );
       _check(epoch);
-      return result;
+      return result == null ? null : parse(result);
     } on RecipeClientException {
       rethrow;
     } on SocketException {
@@ -234,7 +324,7 @@ class SupabaseRecipeClient implements RecipeClient {
     }
   }
 
-  Future<RecipeResult?> _perform(
+  Future<Map<String, dynamic>?> _perform(
     Uri base,
     RecipeRequest request,
     Map<String, dynamic> payload,
@@ -276,7 +366,7 @@ class SupabaseRecipeClient implements RecipeClient {
     }
   }
 
-  Future<RecipeResult?> _performWithSession(
+  Future<Map<String, dynamic>?> _performWithSession(
     Uri base,
     RecipeRequest request,
     Map<String, dynamic> payload,
@@ -335,7 +425,7 @@ class SupabaseRecipeClient implements RecipeClient {
     );
     _check(epoch);
     if (lookupOnly && response['not_found'] == true) return null;
-    return RecipeResult.fromResponse(response, request, now);
+    return response;
   }
 
   Future<_Session> _session(

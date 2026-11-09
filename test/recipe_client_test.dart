@@ -131,6 +131,109 @@ void main() {
     await inventory.close();
     await temporary.delete(recursive: true);
   });
+  test('menu generation posts stage and parses title-only response; lookup uses same id', () async {
+    final originalHandler = handler;
+    handler = (req) async {
+      if (req.uri.path.endsWith('recipe-recommendations') &&
+          !req.uri.queryParameters.containsKey('action')) {
+        if (req.method == 'POST') {
+          final payload = jsonDecode(
+            await utf8.decoder.bind(req).join(),
+          ) as Map<String, dynamic>;
+          expect(payload['stage'], 'menus');
+          expect(payload['request_id'], request.requestId);
+          expect(payload.containsKey('recipes'), false);
+          expect(payload.containsKey('title'), false);
+        } else {
+          expect(req.uri.queryParameters['request_id'], request.requestId);
+        }
+        await reply(req, {
+          'status': 'ok',
+          'message': '',
+          'menus': [
+            {'id': 'm0', 'title': '두부 구이'},
+            {'id': 'm1', 'title': '두부 국'},
+          ],
+          'generated_at': now.toIso8601String(),
+        });
+      } else {
+        await originalHandler(req);
+      }
+    };
+    final menus = await client.recommendMenus(request, now);
+    expect(menus.menus.first.title, '두부 구이');
+    expect((await client.lookupMenus(request, now))!.menus.length, 2);
+    expect(calls.where((c) => c.contains('action=issue')).length, 1);
+  });
+
+  test(
+    'detail posts only selected menu identifier with original request input',
+    () async {
+      final originalHandler = handler;
+      handler = (req) async {
+        if (req.method == 'POST' &&
+            req.uri.path.endsWith('recipe-recommendations') &&
+            !req.uri.queryParameters.containsKey('action')) {
+          final payload = jsonDecode(
+            await utf8.decoder.bind(req).join(),
+          ) as Map<String, dynamic>;
+          expect(payload, {
+            ...request.toJson(now),
+            'stage': 'detail',
+            'parent_request_id': 'parent-id',
+            'menu_id': 'm0',
+          });
+          await reply(req, response);
+        } else {
+          await originalHandler(req);
+        }
+      };
+      final detail = await client.recommendMenuDetail(
+        request,
+        'parent-id',
+        'm0',
+        now,
+      );
+      expect(detail.recipes.single.title, '두부 구이');
+    },
+  );
+
+  test(
+    'selected detail no_match is a valid terminal response and can be replayed',
+    () async {
+      final originalHandler = handler;
+      handler = (req) async {
+        if (req.uri.path.endsWith('recipe-recommendations') &&
+            !req.uri.queryParameters.containsKey('action')) {
+          await utf8.decoder.bind(req).join();
+          await reply(req, {
+            'status': 'no_match',
+            'message': '선택한 메뉴는 조건에 맞지 않아요.',
+            'recipes': [],
+          });
+        } else {
+          await originalHandler(req);
+        }
+      };
+      final detail = await client.recommendMenuDetail(
+        request,
+        'parent-id',
+        'm0',
+        now,
+      );
+      expect(detail.recipes, isEmpty);
+      expect(detail.message, '선택한 메뉴는 조건에 맞지 않아요.');
+      final replay = await client.lookupMenuDetail(
+        request,
+        'parent-id',
+        'm0',
+        now,
+      );
+      expect(replay!.recipes, isEmpty);
+      expect(replay.message, detail.message);
+    },
+  );
+
   test('registration reports offline errors without leaking raw network exceptions', () async {
     await server.close(force: true);
     await expectLater(

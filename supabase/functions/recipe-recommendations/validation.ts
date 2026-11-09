@@ -193,6 +193,46 @@ function excluded(value: string, exclusions: string): boolean {
       (allergens[term] ?? [term]).some((word) => target.includes(norm(word))),
     );
 }
+const foodWords = [
+    "달걀",
+    "계란",
+    "마늘",
+    "양파",
+    "대파",
+    "쪽파",
+    "생강",
+    "우유",
+    "버터",
+    "치즈",
+    "밀가루",
+    "전분",
+    "고추장",
+    "된장",
+    "굴소스",
+    "마요네즈",
+    "케첩",
+    "식초",
+    "올리브유",
+    "참깨",
+    "땅콩",
+    "새우",
+    "돼지고기",
+    "소고기",
+    "닭고기",
+    "감자",
+    "당근",
+    "애호박",
+    "버섯",
+    "김치",
+    "두부",
+    "고춧가루",
+    "설탕",
+    "소금",
+    "간장",
+    "참기름",
+    "후추",
+  ];
+
 function validateRecipe(value: unknown, request: RecipeRequest): Recipe {
   exact(value, [
     "title",
@@ -289,45 +329,6 @@ function validateRecipe(value: unknown, request: RecipeRequest): Recipe {
   if (excluded(instructions, request.exclusions))
     throw new RecipeError("invalid_output");
   // Conservative known-food checks; arbitrary prose cannot prove ingredient completeness.
-  const foodWords = [
-    "달걀",
-    "계란",
-    "마늘",
-    "양파",
-    "대파",
-    "쪽파",
-    "생강",
-    "우유",
-    "버터",
-    "치즈",
-    "밀가루",
-    "전분",
-    "고추장",
-    "된장",
-    "굴소스",
-    "마요네즈",
-    "케첩",
-    "식초",
-    "올리브유",
-    "참깨",
-    "땅콩",
-    "새우",
-    "돼지고기",
-    "소고기",
-    "닭고기",
-    "감자",
-    "당근",
-    "애호박",
-    "버섯",
-    "김치",
-    "두부",
-    "고춧가루",
-    "설탕",
-    "소금",
-    "간장",
-    "참기름",
-    "후추",
-  ];
   const aliases: Record<string, string[]> = {
     달걀: ["달걀", "계란"],
     계란: ["달걀", "계란"],
@@ -420,4 +421,28 @@ export function validateOutput(
   } catch {
     throw new RecipeError("invalid_output");
   }
+}
+
+export function validateMenus(value:any,request:RecipeRequest):{status:string;message:string;menus:{id:string;title:string}[]} {
+ try {
+  exact(value,["status","message","menus"]);
+  if(!["ok","no_match"].includes(value.status)||!text(value.message,500,true)||!Array.isArray(value.menus)||value.menus.length>5) throw new RecipeError('invalid_output');
+  if(value.status==='no_match') {
+   if(value.menus.length||!value.message.trim()) throw new RecipeError('invalid_output');
+   return {status:'no_match',message:value.message,menus:[]};
+  }
+  const seen=new Set<string>(); const menus:{id:string;title:string}[]=[];
+  for(const m of value.menus) {
+   exact(m,['title']);
+   if(!text(m.title,100)||m.title!==m.title.trim()) throw new RecipeError('invalid_output');
+   let key=norm(m.title).replace(/^(?:노릇하게|노릇한|바삭한|담백한|간단한)/u,'');
+   for(const [prefix,suffix] of [['구운','구이'],['찐','찜'],['볶은','볶음'],['튀긴','튀김']]) if(key.startsWith(prefix)) {key=key.slice(prefix.length)+suffix;break;}
+   const available=[...request.ingredients.map(i=>i.name),...request.staples].map(norm);
+   const missing=[...new Set([...foodWords,...staples])].filter(w=>norm(m.title).includes(norm(w))&&!available.some(n=>n.includes(norm(w))||(['달걀','계란'].includes(w)&&['달걀','계란'].some(a=>n.includes(a)))));
+   if(excluded(m.title,request.exclusions)||seen.has(key)||(!request.allow_shopping&&missing.length>0)||new Set(missing).size>3) continue;
+   seen.add(key);menus.push({id:'m'+menus.length,title:m.title});
+  }
+  if(!menus.length) throw new RecipeError('invalid_output');
+  return {status:'ok',message:'',menus};
+ } catch {throw new RecipeError('invalid_output');}
 }

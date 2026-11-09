@@ -100,6 +100,7 @@ class RecipeRequest {
   final int servings;
   final int? maxMinutes;
   final bool allowShopping;
+
   /// Structural checks also apply when replaying a completed historical result.
   void validate() {
     require(
@@ -290,6 +291,67 @@ class Recipe {
     generatedAt: DateTime.parse(_string(json['generated_at'])),
     schemaVersion: _integer(json['schema_version'] ?? 1),
   );
+}
+
+/// A menu stage contains titles only; no invented cooking instructions.
+class RecipeMenu {
+  RecipeMenu({required this.id, required this.title}) {
+    require(
+      RegExp(r'^m[0-4]$').hasMatch(id) &&
+          title.trim().isNotEmpty &&
+          title.length <= 100,
+      '메뉴 응답을 확인해주세요.',
+    );
+  }
+  final String id, title;
+}
+
+class RecipeMenuResult {
+  RecipeMenuResult({
+    required this.requestId,
+    required List<RecipeMenu> menus,
+    this.message = '',
+    required this.generatedAt,
+  }) : menus = List.unmodifiable(menus) {
+    require(
+      requestId.isNotEmpty && menus.length <= 5 && message.length <= 500,
+      '메뉴 응답을 확인해주세요.',
+    );
+    require(
+      menus.map((m) => m.id).toSet().length == menus.length &&
+          menus.map((m) => _normalized(m.title)).toSet().length == menus.length,
+      '중복 메뉴 응답이에요.',
+    );
+  }
+  final String requestId, message;
+  final List<RecipeMenu> menus;
+  final DateTime generatedAt;
+  static RecipeMenuResult fromResponse(
+    Map<String, dynamic> json,
+    String requestId,
+    DateTime now,
+  ) {
+    final items = _maps(json['menus']);
+    final status = _string(json['status']);
+    require(
+      (status == 'ok' && items.isNotEmpty && items.length <= 5) ||
+          (status == 'no_match' && items.isEmpty),
+      '메뉴 응답을 확인해주세요.',
+    );
+    require(!json.containsKey('recipes'), '메뉴 단계에는 조리법이 없어야 해요.');
+    return RecipeMenuResult(
+      requestId: requestId,
+      menus: items
+          .map(
+            (m) => RecipeMenu(id: _string(m['id']), title: _string(m['title'])),
+          )
+          .toList(),
+      message: _string(json['message']),
+      generatedAt: json['generated_at'] == null
+          ? now
+          : DateTime.parse(_string(json['generated_at'])),
+    );
+  }
 }
 
 class RecipeResult {
